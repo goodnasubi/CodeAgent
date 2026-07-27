@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知識ベース検索システム 要件整理</title>
+<style>
+  :root {
+    --paper: #eef1f0;
+    --paper-raised: #ffffff;
+    --ink: #1b1f2a;
+    --ink-soft: #4c5660;
+    --line: rgba(27, 31, 42, 0.14);
+    --line-strong: rgba(27, 31, 42, 0.28);
+    --signal: #b5610a;
+    --signal-ink: #7a4207;
+    --signal-tint: rgba(181, 97, 10, 0.1);
+    --moss: #3c7a58;
+    --moss-tint: rgba(60, 122, 88, 0.12);
+    --shadow: 0 1px 2px rgba(27, 31, 42, 0.06), 0 6px 20px rgba(27, 31, 42, 0.05);
+
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", "Yu Gothic", "Hiragino Kaku Gothic ProN", Consolas, monospace;
+    --font-serif: "Iowan Old Style", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Segoe UI", sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #14171d;
+      --paper-raised: #1c2029;
+      --ink: #e9eaec;
+      --ink-soft: #9aa4ac;
+      --line: rgba(233, 234, 236, 0.14);
+      --line-strong: rgba(233, 234, 236, 0.26);
+      --signal: #e0913f;
+      --signal-ink: #f4c992;
+      --signal-tint: rgba(224, 145, 63, 0.14);
+      --moss: #6fbb95;
+      --moss-tint: rgba(111, 187, 149, 0.14);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14171d;
+    --paper-raised: #1c2029;
+    --ink: #e9eaec;
+    --ink-soft: #9aa4ac;
+    --line: rgba(233, 234, 236, 0.14);
+    --line-strong: rgba(233, 234, 236, 0.26);
+    --signal: #e0913f;
+    --signal-ink: #f4c992;
+    --signal-tint: rgba(224, 145, 63, 0.14);
+    --moss: #6fbb95;
+    --moss-tint: rgba(111, 187, 149, 0.14);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+  }
+  :root[data-theme="light"] {
+    --paper: #eef1f0;
+    --paper-raised: #ffffff;
+    --ink: #1b1f2a;
+    --ink-soft: #4c5660;
+    --line: rgba(27, 31, 42, 0.14);
+    --line-strong: rgba(27, 31, 42, 0.28);
+    --signal: #b5610a;
+    --signal-ink: #7a4207;
+    --signal-tint: rgba(181, 97, 10, 0.1);
+    --moss: #3c7a58;
+    --moss-tint: rgba(60, 122, 88, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-serif);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--signal-tint); }
+
+  a { color: var(--signal-ink); }
+
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 clamp(20px, 4vw, 56px) 96px;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 48px;
+  }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+  }
+
+  /* ---- Masthead ---- */
+  .masthead {
+    grid-column: 1 / -1;
+    padding: 56px 0 32px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal-ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 7px; height: 7px;
+    background: var(--signal);
+    display: inline-block;
+    transform: rotate(45deg);
+  }
+  h1 {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: clamp(28px, 3.6vw, 40px);
+    line-height: 1.25;
+    margin: 0;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  .meta {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  /* ---- TOC ---- */
+  nav.toc {
+    padding-top: 48px;
+  }
+  nav.toc .toc-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 14px;
+  }
+  nav.toc ol {
+    list-style: none;
+    margin: 0; padding: 0;
+    display: flex; flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: 24px;
+  }
+  nav.toc a {
+    display: block;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    padding: 7px 0 7px 14px;
+    border-left: 2px solid var(--line);
+  }
+  nav.toc a:hover { color: var(--ink); border-left-color: var(--signal); }
+
+  main { padding-top: 48px; min-width: 0; }
+
+  section { margin-bottom: 72px; scroll-margin-top: 20px; }
+  section:last-child { margin-bottom: 0; }
+
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--signal-ink);
+    margin-bottom: 8px;
+  }
+  h2 {
+    font-family: var(--font-sans);
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 0 18px;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-family: var(--font-sans);
+    font-size: 15.5px;
+    font-weight: 700;
+    margin: 0 0 6px;
+  }
+  p { max-width: 66ch; margin: 0 0 14px; }
+  p.lede { font-size: 17.5px; color: var(--ink-soft); max-width: 62ch; }
+
+  /* ---- Pillar summary chips ---- */
+  .pillars {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-top: 24px;
+  }
+  .pillar {
+    background: var(--paper-raised);
+    padding: 18px 16px;
+  }
+  .pillar .num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    display: block;
+    margin-bottom: 8px;
+  }
+  .pillar .label {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 14.5px;
+    margin-bottom: 4px;
+  }
+  .pillar .desc {
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+
+  /* ---- Blueprint diagram frame ---- */
+  .blueprint {
+    position: relative;
+    border: 1px dashed var(--line-strong);
+    background: var(--paper-raised);
+    padding: 32px clamp(16px, 3vw, 40px);
+    overflow-x: auto;
+  }
+  .blueprint::before, .blueprint::after,
+  .blueprint .tick-tl, .blueprint .tick-br { display: none; }
+  .blueprint-tag {
+    position: absolute;
+    top: -10px; left: 20px;
+    background: var(--paper);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+    padding: 0 8px;
+    text-transform: uppercase;
+  }
+  .corner {
+    position: absolute;
+    width: 10px; height: 10px;
+    border: 1px solid var(--line-strong);
+  }
+  .corner.tl { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .corner.tr { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: -1px; left: -1px; border-right: none; border-top: none; }
+  .corner.br { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .node {
+    font-family: var(--font-sans);
+    background: var(--paper);
+    border: 1px solid var(--line-strong);
+    padding: 10px 14px;
+    font-size: 13.5px;
+    text-align: center;
+    min-width: 108px;
+  }
+  .node b { display: block; font-size: 13.5px; margin-bottom: 3px; }
+  .node span.tag {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-soft);
+    letter-spacing: 0.04em;
+  }
+  .node.accent { border-color: var(--signal); background: var(--signal-tint); }
+  .node.moss { border-color: var(--moss); background: var(--moss-tint); }
+  .node.stack { display: flex; flex-direction: column; gap: 6px; }
+  .node.group-title {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    background: transparent;
+    border: none;
+    padding: 0 0 4px;
+    text-align: left;
+  }
+
+  .arrow-row {
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono);
+    color: var(--ink-soft);
+    font-size: 13px;
+    min-width: 40px;
+  }
+  .arrow-row.vert { flex-direction: column; min-height: 32px; }
+
+  /* diagram 1: architecture */
+  .diagram-arch {
+    display: flex; align-items: stretch; gap: 4px;
+    min-width: 640px;
+  }
+  .col { display: flex; flex-direction: column; gap: 14px; justify-content: center; flex: 1; }
+  .col.mid { gap: 10px; }
+
+  /* diagram 2: flow */
+  .flow {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    min-width: 520px;
+  }
+  .flow .branch {
+    display: flex; gap: 28px; width: 100%; justify-content: center;
+    align-items: flex-start;
+  }
+  .flow .branch .lane {
+    flex: 1; max-width: 280px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .lane-tag {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 4px 0;
+  }
+  .lane-tag.hit { color: var(--moss); }
+  .lane-tag.miss { color: var(--signal-ink); }
+
+  /* diagram 3: tenant */
+  .diagram-tenant {
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+    min-width: 560px;
+  }
+  .tenant-row { display: flex; gap: 24px; }
+  .tenant-box {
+    border: 1px solid var(--line-strong);
+    padding: 14px;
+    min-width: 220px;
+  }
+  .tenant-box .id {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+  .tenant-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    border: 1px solid var(--line);
+    padding: 4px 8px;
+    background: var(--paper);
+  }
+  .chip.accent {
+    border-color: var(--signal);
+    color: var(--signal-ink);
+    background: var(--signal-tint);
+    font-weight: 600;
+  }
+
+  /* diagram 4: notification */
+  .diagram-notify {
+    display: flex; align-items: center; gap: 4px; justify-content: center;
+    min-width: 560px;
+  }
+
+  /* ---- governing-fact callout ---- */
+  .callout {
+    border: 1px solid var(--signal);
+    background: var(--signal-tint);
+    padding: 20px clamp(16px, 3vw, 28px);
+    margin-top: 28px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .callout .callout-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--signal-ink);
+  }
+  .callout .callout-claim {
+    font-family: var(--font-sans);
+    font-size: clamp(16px, 2vw, 19px);
+    font-weight: 700;
+    line-height: 1.45;
+    text-wrap: balance;
+    margin: 0;
+    max-width: 56ch;
+  }
+  .callout p { margin: 0; font-size: 14.5px; max-width: 62ch; }
+
+  /* ---- tech stack strip ---- */
+  .stack-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-top: 22px;
+  }
+  .stack-cell { background: var(--paper-raised); padding: 14px 16px; }
+  .stack-cell .role {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 5px;
+  }
+  .stack-cell .tech {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 14.5px;
+  }
+
+  /* ---- decision table ---- */
+  .badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .badge.done { color: var(--moss); }
+  .badge.open { color: var(--signal-ink); }
+
+  .warn {
+    border: 1px solid var(--signal);
+    border-left-width: 3px;
+    padding: 14px 18px;
+    margin-top: 20px;
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    max-width: 66ch;
+  }
+  .warn strong { color: var(--signal-ink); }
+
+  /* ---- screens (wireframes) ---- */
+  .screens {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .screen {
+    border: 1px solid var(--line-strong);
+    background: var(--paper-raised);
+    position: relative;
+  }
+  .screen-head {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding: 8px 12px;
+    border-bottom: 1px dashed var(--line);
+    display: flex; justify-content: space-between;
+  }
+  .screen-body { padding: 12px; font-family: var(--font-sans); }
+  .wf-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .wf-block {
+    border: 1px solid var(--line);
+    background: var(--paper);
+    font-size: 11px;
+    color: var(--ink-soft);
+    padding: 8px;
+    min-height: 28px;
+    display: flex; align-items: center;
+  }
+  .wf-block.fill { flex: 1; }
+  .wf-block.tall { min-height: 90px; align-items: flex-start; }
+  .wf-block.accent { border-color: var(--signal); color: var(--signal-ink); background: var(--signal-tint); }
+  .wf-block.moss { border-color: var(--moss); color: var(--moss); background: var(--moss-tint); }
+  .bubble {
+    border: 1px solid var(--line);
+    background: var(--paper);
+    padding: 6px 9px;
+    font-size: 11px;
+    margin-bottom: 6px;
+    max-width: 80%;
+  }
+  .bubble.me { margin-left: auto; background: var(--signal-tint); border-color: var(--signal); }
+
+  /* ---- tables ---- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); }
+  table { border-collapse: collapse; width: 100%; font-family: var(--font-sans); font-size: 13.5px; min-width: 560px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); background: var(--paper); }
+  tr:last-child td { border-bottom: none; }
+  td.q-num { font-family: var(--font-mono); color: var(--signal-ink); white-space: nowrap; }
+
+  .note {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--ink-soft);
+    border-left: 2px solid var(--signal);
+    padding: 4px 0 4px 14px;
+    margin-top: 16px;
+    max-width: 60ch;
+  }
+
+  footer {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-soft);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    section { animation: rise 0.4s ease-out both; }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="masthead">
+    <div class="eyebrow">Requirements Overview — Draft</div>
+    <h1>知識ベース検索・登録システム 要件整理</h1>
+    <div class="meta">
+      <span><b>対象:</b> 不具合報告・問い合わせ 知識ベース検索/登録システム</span>
+      <span><b>日付:</b> 2026-07-28</span>
+      <span><b>状態:</b> 主要論点13件 確定済 / 保留4件</span>
+      <span><b>参照元:</b> docs/issue-similarity-search-design_1.md</span>
+    </div>
+  </div>
+
+  <nav class="toc">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#overview">概要</a></li>
+      <li><a href="#arch">システム構成</a></li>
+      <li><a href="#flow">検索・登録フロー</a></li>
+      <li><a href="#tenant">マルチテナント構造</a></li>
+      <li><a href="#notify">通知フロー</a></li>
+      <li><a href="#screens">画面構成</a></li>
+      <li><a href="#open">決定事項と残論点</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="overview">
+      <div class="section-label">Overview</div>
+      <h2>概要</h2>
+      <p class="lede">不具合報告や問い合わせを知識ベースから検索し、ヒットすれば表示・追記、未ヒットなら新規登録できるシステム。GitLabイシュー限定だった元の設計を土台に、対象knowledge base・LLM・テナントを汎用化する。</p>
+
+      <div class="callout">
+        <div class="callout-label">全体を規定する前提</div>
+        <p class="callout-claim">外部KB(GitLab / GitHub / Redmine)が知識の正であり、pgvector は検索用インデックスにすぎない。</p>
+        <p>新規知識はKB側にIssue / チケットとして作成される。この前提から、pgvectorのデータは捨てて再構築できる派生データであること、KB API障害時は新規登録が止まること、ラベルがKBネイティブ機能として使えることが導かれる。他の決定の多くがこれに依存している。</p>
+      </div>
+
+      <div class="pillars">
+        <div class="pillar">
+          <span class="num">Content</span>
+          <div class="label">コンテンツ種別</div>
+          <div class="desc">テキスト / 画像 / URL / ドキュメント(Excel・Word・テキスト)</div>
+        </div>
+        <div class="pillar">
+          <span class="num">Backend</span>
+          <div class="label">知識ベース</div>
+          <div class="desc">GitLab / GitHub / Redmine をマルチ対応</div>
+        </div>
+        <div class="pillar">
+          <span class="num">Model</span>
+          <div class="label">LLM / Embedding</div>
+          <div class="desc">GPT-5.x / Gemini / Claude API。LLM・embeddingとも可変</div>
+        </div>
+        <div class="pillar">
+          <span class="num">Search</span>
+          <div class="label">検索方式</div>
+          <div class="desc">類似度(pgvector)+ キーワード(KB API)のハイブリッド</div>
+        </div>
+        <div class="pillar">
+          <span class="num">Tenant</span>
+          <div class="label">マルチテナント</div>
+          <div class="desc">テナントID単位で設定一式を複数管理。払い出しは管理者のみ</div>
+        </div>
+        <div class="pillar">
+          <span class="num">Notify</span>
+          <div class="label">通知</div>
+          <div class="desc">ラベル付与をトリガーに通知(アプリ内 / Slack / メール)</div>
+        </div>
+        <div class="pillar">
+          <span class="num">UI</span>
+          <div class="label">画面構成</div>
+          <div class="desc">アカウント / チャット / 管理設定 / 開発者 の4画面</div>
+        </div>
+      </div>
+
+      <div class="stack-strip">
+        <div class="stack-cell">
+          <div class="role">Backend</div>
+          <div class="tech">Python 3.10+</div>
+        </div>
+        <div class="stack-cell">
+          <div class="role">Frontend</div>
+          <div class="tech">TypeScript + React</div>
+        </div>
+        <div class="stack-cell">
+          <div class="role">Database</div>
+          <div class="tech">PostgreSQL + pgvector</div>
+        </div>
+        <div class="stack-cell">
+          <div class="role">Doc 変換</div>
+          <div class="tech">markitdown</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="arch">
+      <div class="section-label">Architecture</div>
+      <h2>システム構成</h2>
+      <p>APIトークン等の認証情報はサーバー側DBで管理し、ブラウザには平文で持たせない。ブラウザのlocalStorageはアカウント識別情報と会話履歴の継続用途に限定する。</p>
+
+      <div class="blueprint">
+        <span class="blueprint-tag">fig.1 — component map</span>
+        <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+        <div class="diagram-arch">
+          <div class="col">
+            <div class="node group-title">Browser</div>
+            <div class="node stack">
+              <b>localStorage</b>
+              <span class="tag">account / session id</span>
+              <span class="tag">会話履歴(キャッシュのみ)</span>
+            </div>
+          </div>
+          <div class="arrow-row">⇄ API</div>
+          <div class="col mid">
+            <div class="node accent">
+              <b>Server(Python)</b>
+              <span class="tag">検索・登録・通知 API</span>
+              <span class="tag">markitdown 変換 / cron ポーリング</span>
+            </div>
+            <div class="node">
+              <b>DB(PostgreSQL + pgvector)</b>
+              <span class="tag">テナント設定 / 認証情報(暗号化)</span>
+              <span class="tag">会話履歴(正)</span>
+              <span class="tag">embedding(派生・再構築可)</span>
+            </div>
+          </div>
+          <div class="arrow-row vert">↕</div>
+          <div class="col">
+            <div class="node group-title">External KB — 知識の正<br><span style="color:var(--signal-ink); text-transform:none; letter-spacing:0;">(テナントにつき1つを選択)</span></div>
+            <div class="node stack">
+              <span class="tag">GitLab</span>
+              <span class="tag" style="opacity:.55;">— or —</span>
+              <span class="tag">GitHub</span>
+              <span class="tag" style="opacity:.55;">— or —</span>
+              <span class="tag">Redmine</span>
+            </div>
+            <div class="node group-title" style="margin-top:8px;">LLM / Embedding Provider<br><span style="color:var(--signal-ink); text-transform:none; letter-spacing:0;">(すべてAPI連携)</span></div>
+            <div class="node stack">
+              <span class="tag">GPT-5.x</span>
+              <span class="tag">Gemini</span>
+              <span class="tag">Claude API</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">テナントごとに知識ベースは1つを選択して接続する(GitLab/GitHub/Redmineの同時併用はしない)。LLM・embeddingとも可変で、テナントごとに個別設定する。要件中の「ClaudeCode」は Claude API 連携を指し、CLI呼び出しではない — 3プロバイダすべてを同一のAPIクライアント抽象に揃えられる。</div>
+
+      <div class="warn">
+        <strong>embedding可変化の制約:</strong> pgvectorは次元数混在を格納できるが、HNSW/IVFFlatインデックスは同一次元数の行にしか張れないため、次元数ごとに<b>式インデックス+部分インデックス</b>を用意する。インデックスの上限は2,000次元(<code>halfvec</code>なら4,000次元)。<code>text-embedding-3-large</code>の3072次元は上限を超えるため、次元削減か<code>halfvec</code>が必要。さらに<b>異なるモデルのベクトルは比較できない</b>ため、テナントがembeddingモデルを変更した場合は全件再embeddingが要る。
+      </div>
+    </section>
+
+    <section id="flow">
+      <div class="section-label">Flow</div>
+      <h2>知識検索・登録フロー</h2>
+      <p>チャット上の問い合わせを起点に、知識ベースを検索。ヒット/未ヒットで分岐する。</p>
+
+      <div class="blueprint">
+        <span class="blueprint-tag">fig.2 — search / register</span>
+        <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+        <div class="flow">
+          <div class="node accent"><b>チャットで問い合わせ入力</b><span class="tag">text / image / url / doc</span></div>
+          <div class="arrow-row vert">↓</div>
+          <div class="node"><b>markitdown で変換 / OCR</b><span class="tag">doc・画像 → テキスト</span></div>
+          <div class="arrow-row vert">↓</div>
+          <div class="branch">
+            <div class="lane">
+              <div class="node moss"><b>類似度検索</b><span class="tag">pgvector</span></div>
+            </div>
+            <div class="lane">
+              <div class="node moss"><b>キーワード検索</b><span class="tag">KB API(後から追加)</span></div>
+            </div>
+          </div>
+          <div class="arrow-row vert">↓ マージ</div>
+          <div class="node"><b>ハイブリッド検索結果</b><span class="tag">RRF等でマージ(方式は未定)</span></div>
+          <div class="arrow-row vert">↓ 分岐</div>
+          <div class="branch">
+            <div class="lane">
+              <div class="lane-tag hit">● ヒット</div>
+              <div class="node moss"><b>該当知識を表示</b></div>
+              <div class="arrow-row vert">↓</div>
+              <div class="node moss"><b>知識に追記</b><span class="tag">text / image / url / doc</span></div>
+            </div>
+            <div class="lane">
+              <div class="lane-tag miss">● 未ヒット</div>
+              <div class="node accent"><b>新規知識登録</b><span class="tag">text / image / url / doc</span></div>
+            </div>
+          </div>
+          <div class="arrow-row vert">↓ 合流</div>
+          <div class="node accent"><b>KBへ書き込み(正)</b><span class="tag">Issue / チケットとして作成・更新</span></div>
+          <div class="arrow-row vert">↓</div>
+          <div class="node"><b>Embedding生成 → pgvectorへ格納(派生)</b><span class="tag">モデル名・次元数を併記</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tenant">
+      <div class="section-label">Tenancy</div>
+      <h2>マルチテナント構造</h2>
+      <p>テナントの払い出しは管理者(開発者向け画面)のみが行う。ユーザー側でのテナント自己作成はできない。KBの認証情報はテナント本体とは別テーブル(<code>tenant_kb_connections</code>)に1対1で分離し、トークンはアプリ側で暗号化して保存する。</p>
+
+      <div class="blueprint">
+        <span class="blueprint-tag">fig.3 — tenant model</span>
+        <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+        <div class="diagram-tenant">
+          <div class="node accent"><b>管理者(開発者向け画面)</b><span class="tag">テナント払い出し</span></div>
+          <div class="arrow-row vert">↓ issue</div>
+          <div class="tenant-row">
+            <div class="tenant-box">
+              <div class="id">TENANT_ID: A</div>
+              <div class="tenant-chips">
+                <span class="chip accent">KB: GitLab</span>
+                <span class="chip">LLM設定</span>
+                <span class="chip">アカウント</span>
+                <span class="chip">会話履歴</span>
+              </div>
+            </div>
+            <div class="tenant-box">
+              <div class="id">TENANT_ID: B</div>
+              <div class="tenant-chips">
+                <span class="chip accent">KB: Redmine</span>
+                <span class="chip">LLM設定</span>
+                <span class="chip">アカウント</span>
+                <span class="chip">会話履歴</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="notify">
+      <div class="section-label">Notification</div>
+      <h2>通知フロー</h2>
+      <p>ラベルはKB側の機能をそのまま使い、ラベル付与をトリガーに通知を行う。宛先の解決は<b>ラベル→通知先のマッピングを管理設定画面で定義</b>する方式。認証を最小構成としたためKBユーザーと本システムのアカウントを紐付ける土台がなく、assignee / ウォッチャーに従う方式は採れない。</p>
+
+      <div class="blueprint">
+        <span class="blueprint-tag">fig.4 — label-triggered notification (multi-channel)</span>
+        <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+        <div class="diagram-notify">
+          <div class="node"><b>KB側で知識にラベル付与</b></div>
+          <div class="arrow-row">→</div>
+          <div class="node accent"><b>ラベル→宛先マッピング</b><span class="tag">管理設定画面で定義</span></div>
+          <div class="arrow-row">→</div>
+          <div class="col" style="gap:8px;">
+            <div class="node moss"><b>アプリ内通知</b><span class="tag">チャット画面上に表示</span></div>
+            <div class="node moss"><b>Slack</b><span class="tag">チャンネル / DM通知</span></div>
+            <div class="node moss"><b>メール</b><span class="tag">登録アドレスへ送信</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="screens">
+      <div class="section-label">UI</div>
+      <h2>画面構成</h2>
+      <p>4画面構成。チャット画面はClaudeのようなチャット形式で、コンテンツの貼付と知識一覧表示を兼ねる。</p>
+
+      <div class="screens">
+        <div class="screen">
+          <div class="screen-head"><span>account</span><span>アカウント管理画面</span></div>
+          <div class="screen-body">
+            <div class="wf-row"><div class="wf-block fill">アカウントID</div></div>
+            <div class="wf-row"><div class="wf-block fill">所属テナント表示</div></div>
+            <div class="wf-row"><div class="wf-block accent fill">アカウント変更</div></div>
+          </div>
+        </div>
+
+        <div class="screen">
+          <div class="screen-head"><span>chat</span><span>チャット画面</span></div>
+          <div class="screen-body">
+            <div class="wf-row" style="gap:8px;">
+              <div class="wf-block tall" style="width:34%;">知識一覧<br>(ラベル付き)</div>
+              <div class="wf-block tall fill">
+                <div style="width:100%;">
+                  <div class="bubble">エラーログの件で類似知識ありますか</div>
+                  <div class="bubble me">3件ヒット / 表示中</div>
+                </div>
+              </div>
+            </div>
+            <div class="wf-row"><div class="wf-block accent fill">入力欄 + 添付(画像/URL/ドキュメント)</div></div>
+            <div class="wf-row"><div class="wf-block moss fill">🔔 通知バッジ表示</div></div>
+          </div>
+        </div>
+
+        <div class="screen">
+          <div class="screen-head"><span>admin</span><span>管理設定画面</span></div>
+          <div class="screen-body">
+            <div class="wf-row"><div class="wf-block fill">知識ベース選択設定(GitLab/GitHub/Redmine)</div></div>
+            <div class="wf-row"><div class="wf-block fill">LLM/Embedding選択設定(GPT-5.x/Gemini/ClaudeCode)</div></div>
+            <div class="wf-row"><div class="wf-block fill">その他設定</div></div>
+          </div>
+        </div>
+
+        <div class="screen">
+          <div class="screen-head"><span>developer</span><span>開発者向け画面</span></div>
+          <div class="screen-body">
+            <div class="wf-row"><div class="wf-block accent fill">テナント払い出し</div></div>
+            <div class="wf-row"><div class="wf-block tall fill">デバッグログ / メンテナンス</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="open">
+      <div class="section-label">Decisions</div>
+      <h2>決定事項と残論点</h2>
+      <p>要件を一問ずつ検証した結果、実装着手前に決めるべき論点は出揃った。以下は決定内容と、意図的に先送りした事項。</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>論点</th><th>決定</th><th>状態</th></tr></thead>
+          <tbody>
+            <tr><td class="q-num">01</td><td>会話履歴の永続化</td><td>DBが正、localStorageはキャッシュ。端末跨ぎで継続可</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">02</td><td>アカウント管理画面の範囲</td><td>アカウント切替 + テナント読み取り表示 + 最低限のプロフィール編集</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">03</td><td>KB認証情報のデータモデル</td><td><code>tenant_kb_connections</code> に分離、1対1、トークンは暗号化</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">04</td><td>元メモの未確定点</td><td>GitLabバージョン確認は破棄、残り3点を引き継ぎ</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">05</td><td>認証方式</td><td>独自認証は持たず管理者払い出しの識別子運用</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">06</td><td>OCR</td><td>テナント選択のLLMに委譲(固定プロバイダは設けない)</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">07</td><td>embedding</td><td>可変(テナント選択制)。次元数混在は部分インデックスで対応</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">08</td><td>「ClaudeCode」の意味</td><td>Claude API連携(CLI呼び出しではない)</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">09</td><td>技術スタック</td><td>Python + markitdown / TypeScript + React / PostgreSQL + pgvector</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">10</td><td>差分更新</td><td>cronポーリングに統一(Webhookは使わない)</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">11</td><td>知識の実体</td><td><b>KBが正、pgvectorは検索インデックス</b></td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">12</td><td>通知の宛先</td><td>ラベル→宛先マッピングを管理設定画面で定義</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">13</td><td>検索方式</td><td>ハイブリッド。初期は類似度検索から、キーワード検索を後付け</td><td><span class="badge done">決定</span></td></tr>
+            <tr><td class="q-num">—</td><td>cronポーリングの実行間隔</td><td>実運用の鮮度要求を見てから決定</td><td><span class="badge open">保留</span></td></tr>
+            <tr><td class="q-num">—</td><td>pgvectorのインデックス種別</td><td>ivfflat / hnsw — データ量が見えてから決定</td><td><span class="badge open">保留</span></td></tr>
+            <tr><td class="q-num">—</td><td>ハイブリッド検索のマージ方式</td><td>RRF等 — 両検索が動いてから実データで決定</td><td><span class="badge open">保留</span></td></tr>
+            <tr><td class="q-num">—</td><td>再embedding運用</td><td>モデル変更時の手動/自動、実行中の検索の扱い</td><td><span class="badge open">保留</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="warn">
+        <strong>注意すべき前提:</strong> 決定05(認証を持たない)は<b>社内クローズド運用</b>を前提としている。インターネット公開する場合はこの前提が崩れ、独自認証またはIdP連携が後付けの改善ではなく<b>着手時の必須要件</b>になる。公開範囲が変わる際は必ず再検討すること。
+      </div>
+    </section>
+
+  </main>
+
+  <footer>docs/knowledge-base-system-requirements.md と対応 · 一問ずつの検証により主要論点を確定 · 2026-07-28</footer>
+</div>
+</body>
+</html>
