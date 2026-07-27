@@ -9,6 +9,8 @@ This repository currently contains **design/requirements documentation only** �
 ## What's here
 
 - [docs/knowledge-base-system-requirements.md](docs/knowledge-base-system-requirements.md) — **the source of truth.** A multi-backend, multi-tenant knowledge base system. Most design questions have now been resolved through a decision-by-decision review; each decision records its rationale, so read the reasoning before revisiting one.
+- [docs/system-overview.svg](docs/system-overview.svg) — plain-language whole-system diagram aimed at non-engineers (PNG twin at `system-overview.png` for slides/email). It teaches the bookshelf/index-card metaphor for the source-of-truth split below; reuse that vocabulary when explaining the system to non-technical readers. Edit the SVG, then re-render the PNG — never edit them independently.
+- [docs/knowledge-base-system-requirements.html](docs/knowledge-base-system-requirements.html) — illustrated version of the requirements (standalone page; also published as an Artifact).
 - [docs/issue-similarity-search-design_1.md](docs/issue-similarity-search-design_1.md) — the original **GitLab-only** design memo, superseded by the above. Retained for pipeline-level detail that still applies: the image-OCR-into-body approach, the `combined_text` format with separator markers, the pgvector schema, and `glab` CLI invocation patterns (which will be reused for the keyword-search half of hybrid search).
 
 ## The one architectural fact that governs everything
@@ -48,6 +50,18 @@ If you find yourself designing something that treats the local DB as authoritati
 ## Still open
 
 Deliberately deferred until real data or operational experience exists: cron polling interval, pgvector index type (ivfflat vs hnsw), hybrid-search merge strategy (RRF etc.), and the re-embedding workflow when a tenant switches embedding model.
+
+## Regenerating the overview PNG
+
+No SVG renderer, `pip`, or `sudo` is available in this WSL environment. The PNG is produced through the Windows Chrome install via WSL interop:
+
+```bash
+"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" --headless --disable-gpu \
+  --screenshot="$(wslpath -w docs/system-overview.png)" --window-size=1240,1600 \
+  "file:///$(wslpath -w docs/system-overview.svg | tr '\\' '/')"
+```
+
+Window size must match the SVG's `viewBox` (1240×1600) or the output is cropped or padded.
 
 ## Working notes
 

@@ -2,7 +2,12 @@
 
 - 対象: 不具合報告・問い合わせを検索/登録できる知識ベースシステム
 - 参照元: [issue-similarity-search-design_1.md](./issue-similarity-search-design_1.md)(GitLab限定の元設計を汎用化)
-- ビジュアル版: https://claude.ai/code/artifact/c305e7b1-2c0f-406c-b7a5-7616808d9ff4
+- ビジュアル版: https://claude.ai/code/artifact/c305e7b1-2c0f-406c-b7a5-7616808d9ff4 / ローカル版 [knowledge-base-system-requirements.html](./knowledge-base-system-requirements.html)
+- やさしい全体像(非エンジニア向け): [system-overview.svg](./system-overview.svg)
+
+## 全体像
+
+![システム全体像](./system-overview.svg)
 
 ## 概要
 
