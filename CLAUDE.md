@@ -9,7 +9,7 @@ This repository currently contains **design/requirements documentation only** �
 ## What's here
 
 - [docs/knowledge-base-system-requirements.md](docs/knowledge-base-system-requirements.md) — **the source of truth.** A multi-backend, multi-tenant knowledge base system. Most design questions have now been resolved through a decision-by-decision review; each decision records its rationale, so read the reasoning before revisiting one.
-- [docs/system-overview.svg](docs/system-overview.svg) — plain-language whole-system diagram aimed at non-engineers (PNG twin at `system-overview.png` for slides/email). It teaches the bookshelf/index-card metaphor for the source-of-truth split below; reuse that vocabulary when explaining the system to non-technical readers. Edit the SVG, then re-render the PNG — never edit them independently.
+- [docs/system-overview.html](docs/system-overview.html) — plain-language whole-system explainer for non-engineers. **This HTML is the source; `system-overview.png` is a render of it** — edit the HTML and re-render, never touch the PNG alone. It teaches the 本棚 (bookshelf) / 索引カード (index card) metaphor for the source-of-truth split below; reuse that vocabulary when explaining the system to non-technical readers.
 - [docs/knowledge-base-system-requirements.html](docs/knowledge-base-system-requirements.html) — illustrated version of the requirements (standalone page; also published as an Artifact).
 - [docs/issue-similarity-search-design_1.md](docs/issue-similarity-search-design_1.md) — the original **GitLab-only** design memo, superseded by the above. Retained for pipeline-level detail that still applies: the image-OCR-into-body approach, the `combined_text` format with separator markers, the pgvector schema, and `glab` CLI invocation patterns (which will be reused for the keyword-search half of hybrid search).
 
@@ -53,15 +53,16 @@ Deliberately deferred until real data or operational experience exists: cron pol
 
 ## Regenerating the overview PNG
 
-No SVG renderer, `pip`, or `sudo` is available in this WSL environment. The PNG is produced through the Windows Chrome install via WSL interop:
+No image library, SVG renderer, `pip`, or `sudo` is available in this WSL environment. The PNG is rendered from the HTML through the Windows Chrome install via WSL interop:
 
 ```bash
-"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" --headless --disable-gpu \
-  --screenshot="$(wslpath -w docs/system-overview.png)" --window-size=1240,1600 \
-  "file:///$(wslpath -w docs/system-overview.svg | tr '\\' '/')"
+sed 's/<html lang="ja">/<html lang="ja" data-theme="light">/' docs/system-overview.html > /tmp/ov-light.html && "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" --headless --disable-gpu --screenshot="$(wslpath -w docs/system-overview.png)" --window-size=1048,2044 --hide-scrollbars --force-device-scale-factor=2 "file:///$(wslpath -w /tmp/ov-light.html | tr '\\' '/')"
 ```
 
-Window size must match the SVG's `viewBox` (1240×1600) or the output is cropped or padded.
+Two things this command depends on:
+
+- **Window height must equal the page's content height** or the PNG gets cut off / gains dead space. There is no full-page flag and no image library to trim with, so re-measure after editing the HTML: append a `load` handler that writes `document.documentElement.scrollHeight` onto `<body data-h>`, run Chrome with `--dump-dom`, and grep the value out.
+- **Headless Chrome honors the OS dark-mode preference**, which produces a dark PNG. Render from a copy whose `<html>` carries `data-theme="light"` — the committed HTML deliberately omits it so the page still follows the reader's own theme.
 
 ## Working notes
 

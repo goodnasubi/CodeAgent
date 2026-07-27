@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>このシステムは何をするのか</title>
+<style>
+  :root {
+    --ground: #F1F3F2;
+    --card: #FFFFFF;
+    --ink: #1E2A30;
+    --ink-soft: #55666F;
+    --ink-faint: #8496A0;
+    --rule: #DCE3E4;
+    --rule-firm: #C3CFD2;
+
+    --indigo: #27496D;
+    --indigo-soft: #E8EEF4;
+    --indigo-line: #B5C8DA;
+
+    --ochre: #B87514;
+    --ochre-soft: #FBF1E2;
+    --ochre-line: #E8CFA4;
+
+    --moss: #3F7350;
+    --moss-soft: #E8F1EA;
+    --moss-line: #B4D2BE;
+
+    --sans: 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Noto Sans JP', Meiryo, sans-serif;
+    --mincho: 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', 'MS PMincho', serif;
+    --mono: ui-monospace, 'SF Mono', Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #161B1E;
+      --card: #1F262A;
+      --ink: #E8ECEE;
+      --ink-soft: #A4B2B9;
+      --ink-faint: #77878F;
+      --rule: #2E383D;
+      --rule-firm: #3D4A50;
+      --indigo: #7EA8CF;
+      --indigo-soft: #1C2A36;
+      --indigo-line: #33506B;
+      --ochre: #E0A54A;
+      --ochre-soft: #2C2318;
+      --ochre-line: #5C4620;
+      --moss: #7FB893;
+      --moss-soft: #1A261D;
+      --moss-line: #35513E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #161B1E; --card: #1F262A; --ink: #E8ECEE; --ink-soft: #A4B2B9;
+    --ink-faint: #77878F; --rule: #2E383D; --rule-firm: #3D4A50;
+    --indigo: #7EA8CF; --indigo-soft: #1C2A36; --indigo-line: #33506B;
+    --ochre: #E0A54A; --ochre-soft: #2C2318; --ochre-line: #5C4620;
+    --moss: #7FB893; --moss-soft: #1A261D; --moss-line: #35513E;
+  }
+  :root[data-theme="light"] {
+    --ground: #F1F3F2; --card: #FFFFFF; --ink: #1E2A30; --ink-soft: #55666F;
+    --ink-faint: #8496A0; --rule: #DCE3E4; --rule-firm: #C3CFD2;
+    --indigo: #27496D; --indigo-soft: #E8EEF4; --indigo-line: #B5C8DA;
+    --ochre: #B87514; --ochre-soft: #FBF1E2; --ochre-line: #E8CFA4;
+    --moss: #3F7350; --moss-soft: #E8F1EA; --moss-line: #B4D2BE;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 1000px; margin: 0 auto; padding: 0 24px 56px; }
+
+  /* ---------- header ---------- */
+  header {
+    padding: 56px 0 36px;
+    border-bottom: 3px solid var(--indigo);
+    margin-bottom: 40px;
+  }
+  h1 {
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    margin: 0 0 14px;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+  header p {
+    margin: 0;
+    font-size: clamp(15px, 1.8vw, 18px);
+    color: var(--ink-soft);
+    max-width: 44em;
+  }
+
+  /* ---------- steps ---------- */
+  .steps { display: flex; flex-direction: column; gap: 0; }
+
+  .step {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 28px 32px 30px;
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 0 20px;
+    align-items: start;
+  }
+  .step.key { border: 2px solid var(--indigo); padding: 30px 31px 32px; }
+
+  .num {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--card);
+    background: var(--indigo);
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 2px;
+  }
+
+  .step h2 {
+    font-size: clamp(19px, 2.4vw, 24px);
+    font-weight: 700;
+    margin: 0 0 10px;
+    line-height: 1.5;
+    text-wrap: balance;
+  }
+  .step > .body { min-width: 0; }
+  .step p { margin: 0 0 4px; font-size: 15.5px; color: var(--ink-soft); max-width: 46em; }
+  .step p.tight { margin-bottom: 0; }
+
+  /* connector */
+  .link {
+    height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--rule-firm);
+  }
+  .link svg { display: block; }
+
+  /* ---------- two-panel rows ---------- */
+  .pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .panel { border-radius: 4px; padding: 18px 20px 20px; border: 1px solid; }
+  .panel h3 {
+    margin: 0 0 8px;
+    font-size: 17px;
+    font-weight: 700;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .panel p { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+  .panel p + p { margin-top: 7px; }
+
+  .panel.blue { background: var(--indigo-soft); border-color: var(--indigo-line); }
+  .panel.blue h3 { color: var(--indigo); }
+  .panel.amber { background: var(--ochre-soft); border-color: var(--ochre-line); }
+  .panel.amber h3 { color: var(--ochre); }
+  .panel.green { background: var(--moss-soft); border-color: var(--moss-line); }
+  .panel.green h3 { color: var(--moss); }
+
+  .dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #fff;
+  }
+  .dot.green { background: var(--moss); }
+  .dot.amber { background: var(--ochre); }
+
+  .after {
+    margin-top: 14px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    padding-left: 14px;
+    border-left: 3px solid var(--indigo);
+  }
+
+  /* ---------- step 4 : metaphor ---------- */
+  .shelfrow {
+    display: grid;
+    grid-template-columns: 1fr 92px 1fr;
+    align-items: center;
+    gap: 0;
+    margin-top: 18px;
+  }
+  @media (max-width: 760px) {
+    .shelfrow { grid-template-columns: 1fr; gap: 12px; }
+    .between { flex-direction: row !important; height: auto !important; }
+  }
+  .thing {
+    border: 1px solid;
+    border-radius: 4px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+    height: 100%;
+  }
+  .thing.blue { background: var(--indigo-soft); border-color: var(--indigo-line); }
+  .thing.amber { background: var(--ochre-soft); border-color: var(--ochre-line); }
+  .thing .top { display: flex; align-items: center; gap: 14px; }
+  .thing .name { font-size: 18px; font-weight: 700; line-height: 1.4; }
+  .thing.blue .name { color: var(--indigo); }
+  .thing.amber .name { color: var(--ochre); }
+  .thing .sub { font-size: 13px; color: var(--ink-faint); font-family: var(--mono); letter-spacing: 0.02em; }
+  .thing p { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+  .stamp {
+    margin-top: auto;
+    align-self: flex-start;
+    font-size: 13.5px; font-weight: 700;
+    padding: 6px 14px; border-radius: 999px;
+    color: #fff;
+  }
+  .thing.blue .stamp { background: var(--indigo); }
+  .thing.amber .stamp { background: var(--ochre); }
+
+  .between {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 6px;
+    color: var(--ink-faint);
+    font-size: 12.5px;
+    text-align: center;
+  }
+
+  .quote {
+    margin: 20px 0 0;
+    font-family: var(--mincho);
+    font-size: 16.5px;
+    line-height: 1.95;
+    color: var(--ink);
+    padding: 16px 20px;
+    background: var(--ground);
+    border-radius: 4px;
+    max-width: none;
+  }
+
+  /* ---------- channels ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip {
+    font-size: 14px; font-weight: 700;
+    padding: 7px 15px;
+    border: 1px solid var(--rule-firm);
+    border-radius: 999px;
+    background: var(--ground);
+  }
+
+  /* ---------- footer note ---------- */
+  .note {
+    margin-top: 32px;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--ochre);
+    border-radius: 4px;
+    padding: 22px 26px;
+  }
+  .note h2 { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
+  .note p { margin: 0; font-size: 15px; color: var(--ink-soft); max-width: 48em; }
+
+  svg.icon { display: block; flex: none; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>このシステムは何をするのか</h1>
+    <p>困りごとを過去の記録から探し、見つからなければ新しい記録として残していく仕組みです。使うほど記録が増え、次に同じことで困った人が早く解決できるようになります。</p>
+  </header>
+
+  <div class="steps">
+
+    <!-- 1 -->
+    <section class="step">
+      <div class="num">1</div>
+      <div class="body">
+        <h2>困りごとをチャットで質問する</h2>
+        <p>「プリンターが動かない」「ORA-01555 というエラーが出た」のように、普段の言葉で質問できます。</p>
+        <p class="tight">文章だけでなく、画面の写真や Excel・Word のファイルも一緒に添付できます。</p>
+      </div>
+    </section>
+
+    <div class="link" aria-hidden="true">
+      <svg width="14" height="30" viewBox="0 0 14 30"><path d="M7 0 V22 M1 17 L7 24 L13 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+
+    <!-- 2 -->
+    <section class="step">
+      <div class="num">2</div>
+      <div class="body">
+        <h2>AI が似た記録を探す</h2>
+        <p>性質の違う 2 つの探し方を、同時に使います。</p>
+        <div class="pair">
+          <div class="panel blue">
+            <h3>意味で探す</h3>
+            <p>言い方が違っても見つかります。</p>
+            <p>「ログインできない」と質問すると、「認証に失敗する」と書かれた記録も見つかります。</p>
+          </div>
+          <div class="panel amber">
+            <h3>言葉で探す</h3>
+            <p>記号や番号を、そのまま正確に探します。</p>
+            <p>「ORA-01555」のようなエラー番号や、製品の型番を探すのが得意です。</p>
+          </div>
+        </div>
+        <p class="after">2 つを組み合わせるため、探しているものを取りこぼしにくくなります。</p>
+      </div>
+    </section>
+
+    <div class="link" aria-hidden="true">
+      <svg width="14" height="30" viewBox="0 0 14 30"><path d="M7 0 V22 M1 17 L7 24 L13 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+
+    <!-- 3 -->
+    <section class="step">
+      <div class="num">3</div>
+      <div class="body">
+        <h2>見つかったかどうかで、その後が分かれる</h2>
+        <div class="pair">
+          <div class="panel green">
+            <h3><span class="dot green">✓</span>見つかった場合</h3>
+            <p>その記録を画面に表示します。</p>
+            <p>新しく分かったことがあれば、後から書き足せます。</p>
+          </div>
+          <div class="panel amber">
+            <h3><span class="dot amber">＋</span>見つからなかった場合</h3>
+            <p>新しい記録として登録します。</p>
+            <p>次に同じことで困った人が、その記録を見つけられます。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="link" aria-hidden="true">
+      <svg width="14" height="30" viewBox="0 0 14 30"><path d="M7 0 V22 M1 17 L7 24 L13 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+
+    <!-- 4 -->
+    <section class="step key">
+      <div class="num">4</div>
+      <div class="body">
+        <h2>記録は「本棚」に保管し、探すための「索引カード」も作る</h2>
+        <p>この 2 つは役割がはっきり分かれています。</p>
+
+        <div class="shelfrow">
+          <div class="thing blue">
+            <div class="top">
+              <svg class="icon" width="46" height="46" viewBox="0 0 46 46" aria-hidden="true">
+                <rect x="3" y="5" width="40" height="36" rx="3" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--indigo)"/>
+                <line x1="3" y1="23" x2="43" y2="23" stroke="currentColor" stroke-width="2.2" style="color:var(--indigo)"/>
+                <rect x="8" y="10" width="5" height="9" fill="currentColor" style="color:var(--indigo)"/>
+                <rect x="15" y="10" width="5" height="9" fill="currentColor" opacity="0.45" style="color:var(--indigo)"/>
+                <rect x="22" y="10" width="5" height="9" fill="currentColor" style="color:var(--indigo)"/>
+                <rect x="8" y="28" width="5" height="9" fill="currentColor" opacity="0.45" style="color:var(--indigo)"/>
+                <rect x="15" y="28" width="5" height="9" fill="currentColor" style="color:var(--indigo)"/>
+              </svg>
+              <div>
+                <div class="name">本棚</div>
+                <div class="sub">GitLab / GitHub / Redmine</div>
+              </div>
+            </div>
+            <p>記録の本体を保管する場所です。ここに入っている内容が正式なものになります。</p>
+            <div class="stamp">こちらが原本</div>
+          </div>
+
+          <div class="between">
+            <svg width="46" height="14" viewBox="0 0 46 14" aria-hidden="true"><path d="M0 7 H38 M32 1 L40 7 L32 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>自動で<br>作られる</span>
+          </div>
+
+          <div class="thing amber">
+            <div class="top">
+              <svg class="icon" width="46" height="46" viewBox="0 0 46 46" aria-hidden="true">
+                <rect x="12" y="14" width="28" height="22" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--ochre)"/>
+                <rect x="8" y="10" width="28" height="22" rx="2.5" fill="var(--ochre-soft)" stroke="currentColor" stroke-width="2.2" style="color:var(--ochre)"/>
+                <line x1="13" y1="17" x2="31" y2="17" stroke="currentColor" stroke-width="2" style="color:var(--ochre)"/>
+                <line x1="13" y1="22" x2="31" y2="22" stroke="currentColor" stroke-width="2" opacity="0.45" style="color:var(--ochre)"/>
+                <line x1="13" y1="27" x2="25" y2="27" stroke="currentColor" stroke-width="2" opacity="0.45" style="color:var(--ochre)"/>
+              </svg>
+              <div>
+                <div class="name">索引カード</div>
+                <div class="sub">検索用データ</div>
+              </div>
+            </div>
+            <p>探す速度を上げるための控えです。本棚の内容から自動で作られます。</p>
+            <div class="stamp">失っても作り直せる</div>
+          </div>
+        </div>
+
+        <p class="quote">図書館と同じ考え方です。本そのものを失えば取り返しがつきませんが、索引カードは本さえ残っていれば何度でも作り直せます。だから、守るべきものは本棚の中身だけで済みます。</p>
+      </div>
+    </section>
+
+    <div class="link" aria-hidden="true">
+      <svg width="14" height="30" viewBox="0 0 14 30"><path d="M7 0 V22 M1 17 L7 24 L13 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+
+    <!-- 5 -->
+    <section class="step">
+      <div class="num">5</div>
+      <div class="body">
+        <h2>重要な記録には、関係者へ知らせが届く</h2>
+        <p>記録にラベルが付くと、それを見るべき人に通知が届きます。どのラベルを誰に知らせるかは、管理者があらかじめ決めておきます。</p>
+        <div class="chips">
+          <span class="chip">チャット画面</span>
+          <span class="chip">Slack</span>
+          <span class="chip">メール</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="note">
+    <h2>会社ごとに、独立して使えます</h2>
+    <p>本棚は会社ごとに 1 つだけ選びます（複数を同時に使うことはありません）。利用する AI も、会社ごとに選べます。</p>
+  </div>
+
+</div>
+</body>
+</html>
