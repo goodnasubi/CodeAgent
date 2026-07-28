@@ -10,7 +10,7 @@ from typing import Any, Iterator, Sequence
 
 import httpx
 
-from .base import Knowledge, KnowledgeBaseError, KnowledgeNotFound
+from .base import Knowledge, KnowledgeBaseError, KnowledgeNotFound, Relation
 
 _API = "https://api.github.com"
 _PER_PAGE = 100
@@ -191,6 +191,50 @@ class GitHubKnowledgeBase:
         )
         items = resp.json().get("items", [])
         return [self._to_knowledge(i, with_comments=False) for i in items[:limit]]
+
+    def relations(self, knowledge_id: str) -> list[Relation]:
+        """timeline から参照を集める。
+
+        GitHub には「関連 Issue」という専用の項目がなく、本文やコメントに
+        `#123` と書くことでつながりが生まれる。これは timeline の
+        `cross-referenced` イベントとして現れる。
+
+        **向きに注意**: このイベントは「他から参照された」側にしか立たない。
+        A の本文に `#B` と書いた場合、イベントが付くのは B の timeline で、
+        A からは見えない。したがってここが返すのは**被参照のみ**で、
+        自分が書いた参照は含まれない。
+
+        それでも関係グラフは欠けない。取り込みは全知識を走査するので
+        B の同期時に A とのつながりが記録され、探索側（neighbours）は
+        辺を両向きに辿るため、A からも B に到達できる。
+
+        PR からの参照も同じイベント種別で来るため、除外しないと PR が
+        知識として関係グラフに混入する。
+        """
+        url = f"{self._api}/repos/{self._repo}/issues/{knowledge_id}/timeline"
+        params: dict[str, Any] | None = {"per_page": _PER_PAGE}
+        found: dict[str, Relation] = {}
+
+        for _ in range(_MAX_PAGES):
+            resp = self._request("GET", url, params=params)
+            for event in resp.json():
+                if event.get("event") != "cross-referenced":
+                    continue
+                source = (event.get("source") or {}).get("issue") or {}
+                number = source.get("number")
+                if number is None or "pull_request" in source:
+                    continue
+                other = str(number)
+                if other != str(knowledge_id):
+                    found[other] = Relation(
+                        from_id=str(knowledge_id), to_id=other, kind="references"
+                    )
+            nxt = resp.links.get("next", {}).get("url")
+            if not nxt:
+                break
+            url, params = nxt, None
+
+        return list(found.values())
 
     def close(self) -> None:
         self._client.close()

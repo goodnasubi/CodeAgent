@@ -74,6 +74,15 @@ Three behaviours here were verified against PostgreSQL 17 + pgvector 0.8.5 (`ver
 
 **Change detection is cron polling, never webhooks** — Redmine lacks native webhook support, so polling is the only mechanism that works across all three backends uniformly. Interval is 10 minutes, and it belongs in config, not code. Note what that interval actually governs: knowledge written *through this system* is embedded immediately, so polling only catches edits made directly in the KB — a low-frequency event.
 
+**Knowledge-to-knowledge links are a third ranked signal**, merged by the same RRF. They reach knowledge that neither vector nor keyword search can: search "ORA-01555" and the parent ticket "DB接続エラー全般の調査手順" surfaces even though that phrase never appears in it, because a person linked them. Links are KB-native (GitHub `#123` cross-references, GitLab related issues, Redmine issue relations) — no graph database or external library involved. `knowledge_edges` is derived data, partitioned by tenant, rebuildable from the KB like embeddings.
+
+Two things about edges that are easy to get wrong, both found by tests:
+
+- Store each edge **once, in the direction of whichever knowledge declared it**. Storing both directions means re-syncing one issue deletes edges the *other* issue declared, because the delete has to match "any edge touching me". Traversal reads both directions instead.
+- GitHub's `cross-referenced` event fires only on the **referenced** side: writing `#B` in A's body puts the event on B's timeline, not A's. Nothing is lost — syncing every issue records it from B's side, and traversal is undirected — but `relations(A)` returning nothing there is correct, not a bug.
+
+Default expansion is one hop; more pulls in weakly related knowledge. Damp the signal with an RRF weight rather than by cutting hops.
+
 **Hybrid results merge with RRF**, on ranks alone. Weighted score fusion is not an option here: the two searches return incomparable values (cosine distance vs. KB relevance), some KB search APIs return no score at all, and the three backends define relevance differently. Ranks are the only signal all of them reliably produce.
 
 **Switching a tenant's embedding model runs new and old vectors side by side**, then flips `embedding_model` in tenant config once every chunk is regenerated — searches keep serving from the old model until that moment, and rollback is one field. Delete the old rows afterward, then `REINDEX` before `VACUUM`. The trigger is manual and deliberately separate from changing the model setting, since a re-embed costs real money and time.

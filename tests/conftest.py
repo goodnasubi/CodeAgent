@@ -37,3 +37,4 @@ def tenant_id(repo):
     repo.ensure_tenant(tid)
     yield tid
     repo._conn.execute(f'DROP TABLE IF EXISTS "kc_{tid.hex}"')
+    repo._conn.execute(f'DROP TABLE IF EXISTS "ke_{tid.hex}"')

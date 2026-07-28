@@ -28,3 +28,6 @@ Thumbs.db
 
 # Claude Code local settings (keep shared skills tracked)
 .claude/settings.local.json
+
+# graphify の生成物（開発補助として手元で使うもの。`graphify update .` で再生成できる）
+graphify-out/

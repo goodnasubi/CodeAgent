@@ -45,6 +45,7 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.ingest` | 取り込みパイプライン |
 | `kb.backends` | 知識ベースの共通インターフェース（GitLab / GitHub / Redmine 用） |
 | `kb.backends.github` | GitHub Issues 実装。実機に対する疎通テスト付き |
+| `kb.ranking` | RRF による検索結果のマージ（類似度・キーワード・つながりの3本） |
 
 GitHub 連携の疎通テストを動かす場合は、使い捨ての Private リポジトリを用意して次を渡します。
 
@@ -81,7 +82,7 @@ KB_GITHUB_TEST_REPO=owner/repo KB_GITHUB_TOKEN="$(gh auth token)" uv run python 
 |---|---|
 | 知識ベース | テナントごとに1つ選択（GitLab / GitHub / Redmine の同時併用はしない） |
 | LLM / embedding | どちらもテナントごとに選択可能（GPT-5.x / Gemini / Claude API） |
-| 検索方式 | 類似度検索（pgvector）+ キーワード検索（KB API）のハイブリッド |
+| 検索方式 | 類似度検索（pgvector）+ キーワード検索（KB API）+ 知識どうしのつながり のハイブリッド |
 | ベクトル索引 | HNSW。チャンクテーブルはテナントごとにパーティション分割 |
 | 差分更新 | cron ポーリング（10分間隔）に統一。Redmine が Webhook 非対応のため |
 | 検索結果のマージ | RRF（Reciprocal Rank Fusion）。順位のみを使うためスコア正規化が不要 |

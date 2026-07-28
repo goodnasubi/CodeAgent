@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 from uuid import UUID
 
 import psycopg
@@ -44,6 +45,10 @@ def _index_name(tenant_id: UUID, dim: int) -> str:
     return f"idx_{tenant_id.hex}_{dim}"
 
 
+def _edge_partition_name(tenant_id: UUID) -> str:
+    return f"ke_{tenant_id.hex}"
+
+
 class ChunkRepository:
     def __init__(self, conn: psycopg.Connection) -> None:
         self._conn = conn
@@ -55,15 +60,20 @@ class ChunkRepository:
 
     def ensure_tenant(self, tenant_id: UUID) -> None:
         """テナント用のパーティションを作る。テナント払い出し時に呼ぶ。"""
-        self._conn.execute(
-            sql.SQL(
-                "CREATE TABLE IF NOT EXISTS {part} "
-                "PARTITION OF knowledge_chunks FOR VALUES IN ({tid})"
-            ).format(
-                part=sql.Identifier(_partition_name(tenant_id)),
-                tid=sql.Literal(str(tenant_id)),
+        for table, part in (
+            ("knowledge_chunks", _partition_name(tenant_id)),
+            ("knowledge_edges", _edge_partition_name(tenant_id)),
+        ):
+            self._conn.execute(
+                sql.SQL(
+                    "CREATE TABLE IF NOT EXISTS {part} "
+                    "PARTITION OF {table} FOR VALUES IN ({tid})"
+                ).format(
+                    part=sql.Identifier(part),
+                    table=sql.Identifier(table),
+                    tid=sql.Literal(str(tenant_id)),
+                )
             )
-        )
 
     def ensure_dimension_index(self, tenant_id: UUID, dimensions: int) -> None:
         """次元数ごとの HNSW 部分インデックスを作る。
@@ -190,6 +200,81 @@ class ChunkRepository:
                 },
             )
             return [SearchHit(r[0], r[1], float(r[2])) for r in cur.fetchall()]
+
+    # ---------------------------------------------------------------- edges
+
+    def replace_relations(
+        self, *, tenant_id: UUID, kb_issue_id: str, related: Sequence[tuple[str, str]]
+    ) -> int:
+        """1 つの知識が宣言しているつながりを入れ替える。
+
+        行は「誰が宣言したか」の向きで 1 本だけ持ち、両向きには入れない。
+        両向きに入れると、片方の知識を同期し直したときに「その知識に触れる
+        辺」をまとめて消すことになり、**もう片方が宣言した辺まで巻き添えで
+        消える**。探索側（neighbours）で両向きを見ることで無向グラフとして扱う。
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM knowledge_edges WHERE tenant_id = %s AND from_issue_id = %s",
+                (tenant_id, kb_issue_id),
+            )
+            if not related:
+                return 0
+            cur.executemany(
+                "INSERT INTO knowledge_edges (tenant_id, from_issue_id, to_issue_id, kind)"
+                " VALUES (%s, %s, %s, %s)"
+                " ON CONFLICT (tenant_id, from_issue_id, to_issue_id) DO NOTHING",
+                [(tenant_id, kb_issue_id, other, kind) for other, kind in related],
+            )
+        return len(related)
+
+    def neighbours(
+        self, *, tenant_id: UUID, kb_issue_ids: Sequence[str], hops: int = 1
+    ) -> dict[str, int]:
+        """起点から辿れる知識を {知識ID: ホップ数} で返す。起点自体は含まない。
+
+        辺は宣言した向きで 1 本しか持たないため、両向きを見て無向に辿る。
+
+        既定は 1 ホップ。2 ホップ以上は関連の薄い知識まで引き込み
+        ノイズになりやすいため、広げるときは実データで確認すること。
+        """
+        if hops < 1:
+            raise ValueError("hops must be >= 1")
+        if not kb_issue_ids:
+            return {}
+
+        seen = {str(i) for i in kb_issue_ids}
+        frontier = list(seen)
+        out: dict[str, int] = {}
+
+        with self._conn.cursor() as cur:
+            for hop in range(1, hops + 1):
+                if not frontier:
+                    break
+                cur.execute(
+                    "SELECT to_issue_id AS other FROM knowledge_edges"
+                    "  WHERE tenant_id = %(tid)s AND from_issue_id = ANY(%(ids)s)"
+                    " UNION"
+                    " SELECT from_issue_id FROM knowledge_edges"
+                    "  WHERE tenant_id = %(tid)s AND to_issue_id = ANY(%(ids)s)",
+                    {"tid": tenant_id, "ids": list(frontier)},
+                )
+                nxt = []
+                for (other,) in cur.fetchall():
+                    if other in seen:
+                        continue
+                    seen.add(other)
+                    out[other] = hop
+                    nxt.append(other)
+                frontier = nxt
+        return out
+
+    def count_relations(self, *, tenant_id: UUID) -> int:
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM knowledge_edges WHERE tenant_id = %s", (tenant_id,)
+            )
+            return int(cur.fetchone()[0])
 
     def count(self, *, tenant_id: UUID, model: str | None = None) -> int:
         with self._conn.cursor() as cur:

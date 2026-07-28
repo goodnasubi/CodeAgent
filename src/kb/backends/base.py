@@ -19,6 +19,21 @@ ATTACHMENT_MARKER = "[添付 {name}]"
 
 
 @dataclass(frozen=True)
+class Relation:
+    """知識どうしのつながり。
+
+    KB 側が持っている関係をそのまま写す。ラベルと同じく KB ネイティブの
+    情報であり、こちらは派生データとして保持する（捨てて作り直せる）。
+    """
+
+    from_id: str
+    to_id: str
+    kind: str = "references"
+    """バックエンドが返す関係の種類。GitHub は相互参照のみ、Redmine は
+    relates / duplicates / blocks / precedes などを持つ。"""
+
+
+@dataclass(frozen=True)
 class Knowledge:
     """KB 上の 1 件の知識（GitLab/GitHub の Issue、Redmine のチケット）。"""
 
@@ -88,4 +103,11 @@ class KnowledgeBase(Protocol):
 
         返すのは順位付きの並び。スコアは返さない（バックエンドごとに
         定義が異なり比較できないため、マージは RRF で順位のみを使う）。
+        """
+
+    def relations(self, knowledge_id: str) -> list[Relation]:
+        """その知識がつながっている先を返す。
+
+        人が張ったつながりなので、語も意味も一致しない知識に辿り着ける。
+        類似度検索とキーワード検索のどちらも拾えない領域を埋める。
         """

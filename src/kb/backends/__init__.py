@@ -3,6 +3,7 @@ from .base import (
     KnowledgeBase,
     KnowledgeBaseError,
     KnowledgeNotFound,
+    Relation,
 )
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgeBaseError",
     "KnowledgeNotFound",
+    "Relation",
 ]

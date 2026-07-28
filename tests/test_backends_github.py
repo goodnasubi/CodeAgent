@@ -224,3 +224,45 @@ def test_combined_text_includes_all_parts_with_markers():
 def test_combined_text_skips_empty_sections():
     k = Knowledge(id="1", title="題名", body="", url="", comments=("", "  "))
     assert k.combined_text() == "題名"
+
+
+# ------------------------------------------------------------- relations
+
+
+def timeline_event(number, *, pr=False, kind="cross-referenced"):
+    src = {"number": number, "title": f"関連 #{number}"}
+    if pr:
+        src["pull_request"] = {"url": "..."}
+    return {"event": kind, "source": {"issue": src}}
+
+
+def test_relations_collects_cross_references():
+    kb = build(
+        lambda r: httpx.Response(
+            200, json=[timeline_event(2), {"event": "commented"}, timeline_event(3)]
+        )
+    )
+    rels = kb.relations("1")
+    assert {r.to_id for r in rels} == {"2", "3"}
+    assert all(r.from_id == "1" for r in rels)
+
+
+def test_relations_excludes_pull_requests():
+    kb = build(lambda r: httpx.Response(200, json=[timeline_event(2), timeline_event(9, pr=True)]))
+    assert {r.to_id for r in kb.relations("1")} == {"2"}, "PR が関係グラフに混入している"
+
+
+def test_relations_ignores_self_reference():
+    kb = build(lambda r: httpx.Response(200, json=[timeline_event(1), timeline_event(2)]))
+    assert {r.to_id for r in kb.relations("1")} == {"2"}
+
+
+def test_relations_deduplicates_repeated_references():
+    """同じ Issue を何度参照しても、つながりは 1 本。"""
+    kb = build(lambda r: httpx.Response(200, json=[timeline_event(2)] * 3))
+    assert len(kb.relations("1")) == 1
+
+
+def test_relations_empty_when_no_cross_references():
+    kb = build(lambda r: httpx.Response(200, json=[{"event": "labeled"}]))
+    assert kb.relations("1") == []

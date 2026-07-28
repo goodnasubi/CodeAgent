@@ -121,3 +121,39 @@ def test_search_finds_by_keyword(github, issue):
             return
         time.sleep(3)
     pytest.skip("GitHub の検索インデックスが間に合わなかった（実装の失敗ではない）")
+
+
+def test_relations_are_reported_on_the_referenced_side(github, issue):
+    """`#N` と書いたつながりが、**参照された側**から取れること。
+
+    cross-referenced イベントは被参照側にしか立たない。子の本文に
+    `#親` と書いても、イベントが付くのは親の timeline だけで子には付かない。
+    全知識を走査すればグラフは埋まるので、これで欠落は生じない。
+    """
+    marker = uuid.uuid4().hex[:8]
+    parent = issue(f"[test {marker}] 親: DB接続エラー全般", "接続まわりの調査")
+    child = issue(f"[test {marker}] 子: ORA-01555", f"#{parent.id} の一種")
+
+    for _ in range(10):
+        if child.id in {r.to_id for r in github.relations(parent.id)}:
+            break
+        time.sleep(3)
+    else:
+        pytest.fail("参照された側からつながりが取れない")
+
+    # 逆向きは取れない（GitHub の仕様。実装の欠陥ではない）
+    assert parent.id not in {r.to_id for r in github.relations(child.id)}
+
+
+def test_relations_from_a_comment_are_found(github, issue):
+    """本文だけでなく、コメントに書いた `#N` も拾えること。"""
+    marker = uuid.uuid4().hex[:8]
+    target = issue(f"[test {marker}] 参照される側", "本文")
+    other = issue(f"[test {marker}] 参照する側", "本文")
+    github.append(other.id, f"関連: #{target.id} も参照")
+
+    for _ in range(10):
+        if other.id in {r.to_id for r in github.relations(target.id)}:
+            return
+        time.sleep(3)
+    pytest.fail("コメントからの参照が取れない")
