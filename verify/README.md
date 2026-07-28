@@ -56,6 +56,30 @@ docker cp verify/pgvector-design.sql kb-pg:/tmp/ && docker exec kb-pg psql -U po
 docker rm -f kb-pg
 ```
 
+## Redmine を立てて検証する
+
+Redmine は self-hosted 前提の製品なので、手元に立てて確認します。
+
+```bash
+docker run -d --name kb-redmine -p 3000:3000 redmine:5
+```
+
+起動後、REST API の有効化・プロジェクト作成・ラベル用カスタムフィールドの作成を Rails コンソールから行います（UI 操作より確実で再現できます）。
+
+```bash
+docker cp verify/redmine-setup.rb kb-redmine:/tmp/setup.rb && docker exec kb-redmine bundle exec rails runner /tmp/setup.rb -e production
+```
+
+出力された API キーを使ってテストを実行します。
+
+```bash
+KB_REDMINE_URL=http://localhost:3000 KB_REDMINE_API_KEY=<出力されたキー> KB_REDMINE_PROJECT=kb-adapter-test uv run python -m pytest tests/test_backends_redmine_live.py
+```
+
+後片付けは `docker rm -f kb-redmine` です。
+
+> **Redmine にラベル機能はありません。** カテゴリは単一値、トラッカーは種別で、いずれも複数のラベルを付ける用途に合いません。そのため**複数選択のカスタムフィールド**をラベルとして使います。上のセットアップスクリプトが `Labels` という名前で作成します。実運用の Redmine でも同じ設定が一度だけ必要です。
+
 ## 開発環境について
 
 この環境（WSL2 / Ubuntu 20.04）では、実装に必要なものが標準では揃いません。

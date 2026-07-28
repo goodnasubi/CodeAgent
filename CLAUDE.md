@@ -22,6 +22,10 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_GITHUB_
 
 The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` at `~/.local/bin` supplies both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Setup notes and the standalone design check live in [verify/README.md](verify/README.md).
 
+**Redmine has no labels at all** — categories are single-valued, trackers are a type, neither models "several labels on one entry". The adapter maps labels onto a **multi-select custom field** (`Labels` by default, configurable), which needs a one-time setup on each Redmine instance; `verify/redmine-setup.rb` creates it. When the field is absent, reads return no labels and `add_labels` raises `LabelFieldMissing` rather than silently doing nothing. Since decision 12 routes notifications by label, an unconfigured Redmine means notifications never fire — hence the loud failure.
+
+Two more Redmine traps, both covered by tests: its `journals` include entries that are pure property changes with empty `notes` (filter them or edit history gets embedded), and `updated_since` **must pass `status_id=*`** or the API returns only open issues — silently losing exactly the resolved tickets a knowledge base exists to surface.
+
 **GitLab must keep working on old, Free, self-hosted instances** — that is the deployment target, not gitlab.com. Two consequences already handled in `kb.backends.gitlab`, both verified live:
 
 - The related-issues API (`/links`) is a **Premium feature**. `relations()` treats 403/404 there as "feature absent" and falls back to GitLab's system notes, which record `mentioned in issue #N` on the referenced side whenever someone writes `#N`. System notes are ancient and tier-independent, so links stay discoverable everywhere. Cross-project mentions (`group/project#12`) are deliberately skipped — knowledge IDs are per-project `iid`s and the numbers would collide.

@@ -8,9 +8,9 @@
 
 ## 現在の状態
 
-設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、類似度検索、GitHub 連携まで実装済み**です。
+設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、類似度検索、つながり検索、GitHub / GitLab / Redmine 連携まで実装済み**です。
 
-未実装: GitLab / Redmine 連携、ハイブリッド検索の結果マージ、通知、UI、実 embedding プロバイダ。
+未実装: 通知、UI、実 embedding プロバイダ、キーワード検索とのマージ処理の組み込み。
 
 ## 開発
 
@@ -46,6 +46,7 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.backends` | 知識ベースの共通インターフェース（GitLab / GitHub / Redmine 用） |
 | `kb.backends.github` | GitHub Issues 実装。実機に対する疎通テスト付き |
 | `kb.backends.gitlab` | GitLab Issues 実装。self-hosted / Free 版・旧バージョンでも動作 |
+| `kb.backends.redmine` | Redmine 実装。ラベルは複数選択カスタムフィールドで代用 |
 | `kb.ranking` | RRF による検索結果のマージ（類似度・キーワード・つながりの3本） |
 
 KB 連携の疎通テストを動かす場合は、使い捨てのリポジトリ／プロジェクトを用意して接続情報を渡します。
@@ -58,7 +59,11 @@ KB_GITHUB_TEST_REPO=owner/repo KB_GITHUB_TOKEN="$(gh auth token)" uv run python 
 KB_GITLAB_TEST_PROJECT=group/project KB_GITLAB_TOKEN=xxxxx uv run python -m pytest
 ```
 
-self-hosted GitLab を対象にする場合は `KB_GITLAB_API_BASE=https://gitlab.example.co.jp/api/v4` も指定します。
+```bash
+KB_REDMINE_URL=http://localhost:3000 KB_REDMINE_API_KEY=xxxxx KB_REDMINE_PROJECT=kb-adapter-test uv run python -m pytest
+```
+
+self-hosted GitLab を対象にする場合は `KB_GITLAB_API_BASE=https://gitlab.example.co.jp/api/v4` も指定します。Redmine の立て方は [verify/README.md](verify/README.md) にあります。
 
 実 embedding プロバイダ（OpenAI / Gemini / Claude）は API キーが必要なため未実装です。開発とテストには `HashingEmbeddingProvider` を使います。語彙を共有するテキストが近いベクトルになるため、「似た知識が見つかること」をキーなしで検証できます。
 
@@ -115,4 +120,4 @@ self-hosted GitLab を対象にする場合は `KB_GITLAB_API_BASE=https://gitla
 |---|---|---|
 | cron ポーリング間隔 | 10分 | KB側で直接編集される実際の頻度 |
 | RRF の定数 `k` | 60（慣例値） | 類似度検索とキーワード検索のどちらを効かせたいか |
-| `hnsw.ef_search` | 40（既定値） | 検索の再現率と応答速度のバランス |
+| `hnsw.ef_search` | 100（既定値40から引き上げ） | 検索の再現率と応答速度のバランス。オーバーフェッチ件数の上限も兼ねる |

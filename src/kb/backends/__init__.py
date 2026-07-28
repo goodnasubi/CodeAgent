@@ -16,5 +16,6 @@ __all__ = [
 
 from .github import GitHubKnowledgeBase  # noqa: E402
 from .gitlab import GitLabKnowledgeBase  # noqa: E402
+from .redmine import RedmineKnowledgeBase  # noqa: E402
 
-__all__ += ["GitHubKnowledgeBase", "GitLabKnowledgeBase"]
+__all__ += ["GitHubKnowledgeBase", "GitLabKnowledgeBase", "RedmineKnowledgeBase"]
