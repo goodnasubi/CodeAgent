@@ -8,11 +8,41 @@
 
 ## 現在の状態
 
-**設計・要件定義の段階です。アプリケーションコードはまだありません。**
+設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）と類似度検索まで実装済み**です。
 
-設計上の論点は17件すべて確定しており、実装に着手できる状態です。設計の中核となる pgvector の構成（テナント別パーティション + 次元別部分インデックス）は、実際の PostgreSQL 17 + pgvector 0.8.5 で動作を確認済みです（[verify/](verify/)）。
+未実装: KB 連携（GitLab / GitHub / Redmine）、キーワード検索、通知、UI、実 embedding プロバイダ。
 
-ビルド・テストの手順は、実装開始後にこの README に追記します。
+## 開発
+
+セットアップ（`uv` が必要。導入手順は [verify/README.md](verify/README.md)）:
+
+```bash
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+```
+
+テスト（DB なしでも実行でき、統合テストは自動で skip されます）:
+
+```bash
+.venv/bin/python -m pytest
+```
+
+統合テストも動かす場合は、PostgreSQL を起動して接続先を渡します。
+
+```bash
+KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" .venv/bin/python -m pytest
+```
+
+### 実装済みの構成
+
+| モジュール | 役割 |
+|---|---|
+| `kb.documents` | markitdown によるドキュメント → Markdown 変換 |
+| `kb.chunking` | 構造を尊重したチャンク分割（表はヘッダを繰り返して分割） |
+| `kb.embeddings` | embedding プロバイダの抽象 + 開発用のダミー実装 |
+| `kb.db.repository` | `knowledge_chunks` の読み書きと類似度検索 |
+| `kb.ingest` | 取り込みパイプライン |
+
+実 embedding プロバイダ（OpenAI / Gemini / Claude）は API キーが必要なため未実装です。開発とテストには `HashingEmbeddingProvider` を使います。語彙を共有するテキストが近いベクトルになるため、「似た知識が見つかること」をキーなしで検証できます。
 
 ## ドキュメント
 

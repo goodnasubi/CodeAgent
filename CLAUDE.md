@@ -4,13 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Design documentation plus one verification script — no application source, package manifest, or tests yet. Once implementation begins, replace this section with real build/lint/test commands.
-
-The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` is installed at `~/.local/bin` and provides both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Full setup notes and the reproducible design check live in [verify/README.md](verify/README.md).
+The ingest pipeline (convert → chunk → embed → store) and similarity search are implemented under `src/kb/`. Not yet built: KB adapters (GitLab/GitHub/Redmine), keyword search, notifications, UI, and real embedding providers.
 
 ```bash
-docker cp verify/pgvector-design.sql kb-pg:/tmp/ && docker exec kb-pg psql -U postgres -d knowledge -f /tmp/pgvector-design.sql
+.venv/bin/python -m pytest
 ```
+
+Integration tests skip themselves unless `KB_TEST_DSN` points at a live Postgres — run them before trusting any change to `kb.db`:
+
+```bash
+KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" .venv/bin/python -m pytest
+```
+
+The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` at `~/.local/bin` supplies both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Setup notes and the standalone design check live in [verify/README.md](verify/README.md).
+
+No API keys exist here, so `HashingEmbeddingProvider` stands in for real providers. It is a bag-of-words hash, deliberately not a stub returning noise: texts sharing vocabulary land close together, which is what lets the end-to-end "find the similar document" test mean anything without a key. It does not model paraphrase, so never use it to judge retrieval quality.
 
 ## What's here
 
@@ -53,7 +61,7 @@ Long files are chunked, so one knowledge entry maps to many rows; collapse chunk
 Three behaviours here were verified against PostgreSQL 17 + pgvector 0.8.5 (`verify/pgvector-design.sql` reproduces all of them) and each fails *silently*:
 
 - Index and query must use the **same cast expression** (`embedding::vector(768)`) or Postgres falls back to a sequential scan with no error.
-- **`hnsw.ef_search` caps how many rows a query can return**, so it bounds the over-fetch, not just recall. At the default 40, `LIMIT 100` yields 40 rows. Raise it to at least the over-fetch size.
+- **`hnsw.ef_search` can cap how many rows a query returns**, so it bounds the over-fetch, not just recall — at the default 40, `LIMIT 100` may yield only 40 rows. Whether the cap binds depends on the data: dispersed vectors hit it, near-identical ones did not. Never count on exceeding `ef_search`; set it to at least the over-fetch size. Note `SET LOCAL` takes no parameters and does nothing under autocommit, so `ChunkRepository.search` uses `set_config(..., true)` inside an explicit transaction.
 - A small table gets a `Seq Scan` even with a valid HNSW index — the planner's choice, not a defect. New tenants look "unindexed" until they accumulate rows; confirm with `SET enable_seqscan = off` before investigating.
 
 **Change detection is cron polling, never webhooks** — Redmine lacks native webhook support, so polling is the only mechanism that works across all three backends uniformly. Interval is 10 minutes, and it belongs in config, not code. Note what that interval actually governs: knowledge written *through this system* is embedded immediately, so polling only catches edits made directly in the KB — a low-frequency event.
