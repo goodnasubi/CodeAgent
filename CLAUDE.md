@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repository currently contains **design/requirements documentation only** — no source code, build tooling, package manifests, or tests exist yet. There is nothing to build, lint, or run. Once implementation begins, replace this section with actual commands (build, lint, test, run a single test, etc.).
+Design documentation plus one verification script — no application source, package manifest, or tests yet. Once implementation begins, replace this section with real build/lint/test commands.
+
+The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` is installed at `~/.local/bin` and provides both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Full setup notes and the reproducible design check live in [verify/README.md](verify/README.md).
+
+```bash
+docker cp verify/pgvector-design.sql kb-pg:/tmp/ && docker exec kb-pg psql -U postgres -d knowledge -f /tmp/pgvector-design.sql
+```
 
 ## What's here
 
@@ -42,7 +48,13 @@ If you find yourself designing something that treats the local DB as authoritati
 - IVFFlat cannot be created on an empty table (its k-means step needs rows) and its recall decays as rows are added past the initial clustering. Knowledge here starts empty per tenant and grows continuously, so IVFFlat fights the write pattern.
 - With approximate indexes a `WHERE` clause is applied *after* the index scan. A tenant filter matching ~10% of rows leaves roughly 4 rows out of the default `hnsw.ef_search = 40`. Partitioning by tenant confines the scan to one tenant's index instead, which is why tenant isolation here is a partitioning decision, not a filtering one.
 
-Long files are chunked, so one knowledge entry maps to many rows; collapse chunk hits to entry level with `MIN(distance)` after over-fetching. Index and query must use the *same* cast expression (`embedding::vector(768)`) or Postgres silently falls back to a sequential scan.
+Long files are chunked, so one knowledge entry maps to many rows; collapse chunk hits to entry level with `MIN(distance)` after over-fetching.
+
+Three behaviours here were verified against PostgreSQL 17 + pgvector 0.8.5 (`verify/pgvector-design.sql` reproduces all of them) and each fails *silently*:
+
+- Index and query must use the **same cast expression** (`embedding::vector(768)`) or Postgres falls back to a sequential scan with no error.
+- **`hnsw.ef_search` caps how many rows a query can return**, so it bounds the over-fetch, not just recall. At the default 40, `LIMIT 100` yields 40 rows. Raise it to at least the over-fetch size.
+- A small table gets a `Seq Scan` even with a valid HNSW index — the planner's choice, not a defect. New tenants look "unindexed" until they accumulate rows; confirm with `SET enable_seqscan = off` before investigating.
 
 **Change detection is cron polling, never webhooks** — Redmine lacks native webhook support, so polling is the only mechanism that works across all three backends uniformly. Interval is 10 minutes, and it belongs in config, not code. Note what that interval actually governs: knowledge written *through this system* is embedded immediately, so polling only catches edits made directly in the KB — a low-frequency event.
 

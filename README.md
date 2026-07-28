@@ -8,9 +8,11 @@
 
 ## 現在の状態
 
-**設計・要件定義の段階です。実装コードはまだありません。**
+**設計・要件定義の段階です。アプリケーションコードはまだありません。**
 
-主要な設計判断は一通り確定しており、実装に着手できる状態です。ビルド・テストの手順は、実装開始後にこの README に追記します。
+設計上の論点は17件すべて確定しており、実装に着手できる状態です。設計の中核となる pgvector の構成（テナント別パーティション + 次元別部分インデックス）は、実際の PostgreSQL 17 + pgvector 0.8.5 で動作を確認済みです（[verify/](verify/)）。
+
+ビルド・テストの手順は、実装開始後にこの README に追記します。
 
 ## ドキュメント
 
@@ -20,6 +22,7 @@
 | [docs/knowledge-base-system-requirements.html](docs/knowledge-base-system-requirements.html) | 上記の図解版 |
 | [docs/system-overview.html](docs/system-overview.html) | 全体像の説明（非エンジニア向け） |
 | [docs/issue-similarity-search-design_1.md](docs/issue-similarity-search-design_1.md) | 元の設計メモ（GitLab限定時代）。OCR手法や pgvector のスキーマは現在も有効 |
+| [verify/README.md](verify/README.md) | 設計検証スクリプトと、開発環境の構築手順 |
 | [CLAUDE.md](CLAUDE.md) | Claude Code 向けの作業ガイド |
 
 ## 主要な設計判断
