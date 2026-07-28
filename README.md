@@ -17,19 +17,21 @@
 セットアップ（`uv` が必要。導入手順は [verify/README.md](verify/README.md)）:
 
 ```bash
-uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+uv sync --extra dev
 ```
+
+`uv.lock` に固定されたバージョンで環境が作られるため、誰の環境でも同じ依存関係になります。
 
 テスト（DB なしでも実行でき、統合テストは自動で skip されます）:
 
 ```bash
-.venv/bin/python -m pytest
+uv run python -m pytest
 ```
 
 統合テストも動かす場合は、PostgreSQL を起動して接続先を渡します。
 
 ```bash
-KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" .venv/bin/python -m pytest
+KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run python -m pytest
 ```
 
 ### 実装済みの構成

@@ -28,6 +28,3 @@ Thumbs.db
 
 # Claude Code local settings (keep shared skills tracked)
 .claude/settings.local.json
-
-# uv
-uv.lock

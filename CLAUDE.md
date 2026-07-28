@@ -7,14 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The ingest pipeline (convert → chunk → embed → store) and similarity search are implemented under `src/kb/`. Not yet built: KB adapters (GitLab/GitHub/Redmine), keyword search, notifications, UI, and real embedding providers.
 
 ```bash
-.venv/bin/python -m pytest
+uv run python -m pytest
 ```
 
 Integration tests skip themselves unless `KB_TEST_DSN` points at a live Postgres — run them before trusting any change to `kb.db`:
 
 ```bash
-KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" .venv/bin/python -m pytest
+KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run python -m pytest
 ```
+
+`uv.lock` is committed, so `uv sync --extra dev` reproduces exact versions. Keep it that way — this is an application, not a distributed library, and unpinned transitive deps are how "works on my machine" starts.
 
 The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` at `~/.local/bin` supplies both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Setup notes and the standalone design check live in [verify/README.md](verify/README.md).
 
