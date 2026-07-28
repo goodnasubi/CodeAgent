@@ -4,21 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-The ingest pipeline (convert → chunk → embed → store) and similarity search are implemented under `src/kb/`. Not yet built: KB adapters (GitLab/GitHub/Redmine), keyword search, notifications, UI, and real embedding providers.
+Implemented under `src/kb/`: the ingest pipeline (convert → chunk → embed → store), similarity search, and the GitHub knowledge-base adapter. Not yet built: GitLab/Redmine adapters, hybrid-result merging, notifications, UI, and real embedding providers.
 
 ```bash
 uv run python -m pytest
 ```
 
-Integration tests skip themselves unless `KB_TEST_DSN` points at a live Postgres — run them before trusting any change to `kb.db`:
+Tests that need an external service skip themselves unless its env vars are set. Run them before trusting changes to `kb.db` or `kb.backends`:
 
 ```bash
-KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run python -m pytest
+KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_GITHUB_TEST_REPO=goodnasubi/kb-adapter-test KB_GITHUB_TOKEN="$(gh auth token)" uv run python -m pytest
 ```
+
+`kb-adapter-test` is a private throwaway repo for adapter tests; the fixtures close the issues they create (GitHub has no delete). Mocked tests alone will not catch API drift — the live suite has already caught one divergence, so keep both.
 
 `uv.lock` is committed, so `uv sync --extra dev` reproduces exact versions. Keep it that way — this is an application, not a distributed library, and unpinned transitive deps are how "works on my machine" starts.
 
 The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` at `~/.local/bin` supplies both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Setup notes and the standalone design check live in [verify/README.md](verify/README.md).
+
+**Appending to knowledge means adding a comment, never editing the body** — concurrent body edits silently drop someone else's text, and all three backends have comments (GitLab notes, Redmine journal notes), so this is also the portable choice. `Knowledge.combined_text()` folds title + body + comments + attachment text into the string that gets embedded.
+
+Two GitHub-specific traps, both confirmed against the live API: its issues endpoint **also returns pull requests** (filter on the `pull_request` key or PRs enter the knowledge base), and newly created issues take a few seconds to appear in the list endpoint. The latter is harmless in production — we embed our own writes immediately, and polling only catches external edits — but it will flake any test that lists right after creating.
 
 No API keys exist here, so `HashingEmbeddingProvider` stands in for real providers. It is a bag-of-words hash, deliberately not a stub returning noise: texts sharing vocabulary land close together, which is what lets the end-to-end "find the similar document" test mean anything without a key. It does not model paraphrase, so never use it to judge retrieval quality.
 

@@ -8,9 +8,9 @@
 
 ## 現在の状態
 
-設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）と類似度検索まで実装済み**です。
+設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、類似度検索、GitHub 連携まで実装済み**です。
 
-未実装: KB 連携（GitLab / GitHub / Redmine）、キーワード検索、通知、UI、実 embedding プロバイダ。
+未実装: GitLab / Redmine 連携、ハイブリッド検索の結果マージ、通知、UI、実 embedding プロバイダ。
 
 ## 開発
 
@@ -43,6 +43,14 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.embeddings` | embedding プロバイダの抽象 + 開発用のダミー実装 |
 | `kb.db.repository` | `knowledge_chunks` の読み書きと類似度検索 |
 | `kb.ingest` | 取り込みパイプライン |
+| `kb.backends` | 知識ベースの共通インターフェース（GitLab / GitHub / Redmine 用） |
+| `kb.backends.github` | GitHub Issues 実装。実機に対する疎通テスト付き |
+
+GitHub 連携の疎通テストを動かす場合は、使い捨ての Private リポジトリを用意して次を渡します。
+
+```bash
+KB_GITHUB_TEST_REPO=owner/repo KB_GITHUB_TOKEN="$(gh auth token)" uv run python -m pytest
+```
 
 実 embedding プロバイダ（OpenAI / Gemini / Claude）は API キーが必要なため未実装です。開発とテストには `HashingEmbeddingProvider` を使います。語彙を共有するテキストが近いベクトルになるため、「似た知識が見つかること」をキーなしで検証できます。
 
