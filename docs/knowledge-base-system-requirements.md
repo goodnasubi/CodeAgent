@@ -38,6 +38,8 @@
 
 - 検索 → 表示 → 追記(既存知識への追記)
 - 未検索(未ヒット)時 → 新規知識登録
+- 登録・追記可能なコンテンツ種別: テキスト、画像、URL、ドキュメント(Excel/Word/テキストファイル)
+- 知識にはラベルを設定可能
 
 ### 検索方式: ハイブリッド検索
 
@@ -51,8 +53,72 @@
 - キーワード検索はKB APIを叩くだけで、元設計メモの `glab` 実装がほぼそのまま使えるため後付けコストが低い
 
 マージ方式(RRF / Reciprocal Rank Fusion など)は、両方が動いてから実データを見て決定する。
-- 登録・追記可能なコンテンツ種別: テキスト、画像、URL、ドキュメント(Excel/Word/テキストファイル)
-- 知識にはラベルを設定可能
+
+### 類似度検索の実装方式
+
+登録済みの知識(A・B・C)に対し、後から与えた入力(D)で似たものを探す処理の構成。
+
+**処理の流れ**
+
+```
+【登録時】markitdownでテキスト化 → チャンク分割 → embedding生成 → DB格納
+【検索時】同じくテキスト化 → embedding生成 → 距離検索 → ファイル単位に集約
+```
+
+検索時のembeddingは、**格納済みベクトルと同一のモデルで生成しなければならない**(→「3. LLM / Embedding」)。このためテーブルにはモデル名と次元数を必ず併記する。
+
+**テーブル設計**
+
+ファイルが長いとembeddingのトークン上限を超えるため、チャンクに分けて1行ずつ格納する。「ファイル」と「行」は1対多になる。
+
+```sql
+CREATE TABLE knowledge_chunks (
+  id              BIGSERIAL,
+  tenant_id       UUID   NOT NULL,
+  kb_issue_id     TEXT   NOT NULL,  -- KB側のIssue/チケットID（正はKB側）
+  source_name     TEXT,             -- 元ファイル名
+  chunk_index     INT    NOT NULL,
+  content         TEXT   NOT NULL,
+  embedding       vector NOT NULL,  -- 次元数を固定しない
+  embedding_model TEXT   NOT NULL,
+  embedding_dim   INT    NOT NULL,
+  PRIMARY KEY (tenant_id, id)
+) PARTITION BY LIST (tenant_id);
+```
+
+**インデックス**: 種別は **HNSW**。次元数ごとに部分インデックスを張る。
+
+```sql
+CREATE INDEX ON knowledge_chunks_t001
+  USING hnsw ((embedding::vector(768)) vector_cosine_ops)
+  WHERE embedding_dim = 768;
+```
+
+**検索クエリ**: チャンク単位で多めに取得し、後からファイル単位に畳む。
+
+```sql
+WITH hits AS (
+  SELECT kb_issue_id, source_name,
+         embedding::vector(768) <=> $1::vector(768) AS dist
+  FROM knowledge_chunks
+  WHERE tenant_id = $2 AND embedding_dim = 768
+  ORDER BY embedding::vector(768) <=> $1::vector(768)
+  LIMIT 100
+)
+SELECT kb_issue_id, source_name, MIN(dist) AS best_dist
+FROM hits GROUP BY kb_issue_id, source_name
+ORDER BY best_dist LIMIT 10;
+```
+
+`MIN(dist)` は「そのファイル内で最も近いチャンク」で代表させる方式。長いファイルが不利にならず、一部分だけ強く一致する場合も拾える。
+
+**実装上の注意点**
+
+| 注意点 | 内容 |
+|---|---|
+| キャストを揃える | インデックスを `embedding::vector(768)` で作ったら、クエリの `ORDER BY` も同じ式にする。揃わないとエラーなく全件走査に落ちるため気づきにくい |
+| **テナント絞り込みはパーティショニングで行う** | 近似インデックスでは WHERE 句がインデックス走査の**後**に適用される。条件が全体の10%にしか当たらない場合、`hnsw.ef_search` の既定値40に対し平均4件しか残らない。マルチテナントでは各テナントが全体のごく一部となりこの問題を正面から受けるため、`tenant_id` によるパーティショニングで走査自体をテナント内に閉じる |
+| 入力側が複数チャンクになる場合 | 各チャンクのベクトルを平均して代表ベクトル1本にする。「似たファイルを探す」用途ではファイル全体の主題で比較すればよく、チャンクごとに検索してマージする方式ほどの精度は要らない |
 
 ### ドキュメント変換
 
@@ -200,13 +266,25 @@ pgvectorの仕様上、以下の3点を満たす必要がある。
 | GitLabバージョン確認(公式MCPの `gitlab_issue_search` が使えるか) | **破棄**。GitLabは3つのKBのうち1つに過ぎず、GitLab専用MCPに依存する設計は他KBと共通化できない。`glab`/REST API方式で統一する |
 | OCR手段の選択(Gemini vs Cloud Vision API) | **解決済み**。テナントが選択したLLMに委譲する方針に決定(→「3. LLM / Embedding」) |
 | 差分更新の方式(cron vs Webhook) | **解決済み**。cronポーリングに統一(→「5. 差分更新」) |
-| pgvectorインデックス設計(ivfflat vs hnsw) | **引き継ぐ(後回し可)**。データ量が見えてから決める性質のもので、要件段階での決定は不要 |
+| pgvectorインデックス設計(ivfflat vs hnsw) | **解決済み**。HNSW を採用(→「類似度検索の実装方式」) |
 
 ### 引き続き未確定の事項
 
-いずれも「実データ・実運用が見えてから決めるべき」性質のもので、要件段階では確定しない。
-
 1. cronポーリングの実行間隔
-2. pgvectorのインデックス種別(ivfflat / hnsw) — データ量が見えてから決定
-3. ハイブリッド検索のマージ方式(RRF等) — 両検索が動いてから実データを見て決定
-4. テナントがembeddingモデルを変更した際の再embedding運用(手動トリガーか自動か、実行中の検索をどう扱うか)
+2. ハイブリッド検索のマージ方式(RRF等) — 両検索が動いてから実データを見て決定
+3. テナントがembeddingモデルを変更した際の再embedding運用(手動トリガーか自動か、実行中の検索をどう扱うか)
+
+### 決定済みだが、pgvectorインデックスについての補足
+
+**HNSW を採用**(決定14)。データ量ではなく、本システムの**書き込みパターン**で決まった。
+
+| | HNSW | IVFFlat |
+|---|---|---|
+| 空テーブルへの作成 | 可能 | **不可**(k-meansの学習にデータが必要) |
+| 構築時間・メモリ | 遅い・多い | 速い・少ない |
+| 検索性能(速度と再現率) | **優れる** | 劣る |
+| 後から行を追加した場合 | 問題なし | 初期クラスタリングが古くなり再現率が劣化しうる |
+
+- 知識は空の状態から増えていくため、「データが入った後でないとインデックスを作れない」IVFFlat の制約は、テナントを新設するたびに問題になる
+- 検索は人が待つ処理で頻度も書き込みより高く、速度と再現率のトレードオフで優れる HNSW を選ぶべき場面
+- **運用上の注意**: HNSW は VACUUM に時間がかかる。公式ドキュメントは事前の REINDEX を推奨しており、再embedding運用(残論点3)と併せて設計する

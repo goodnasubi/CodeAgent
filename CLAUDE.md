@@ -37,6 +37,13 @@ If you find yourself designing something that treats the local DB as authoritati
 
 **Search is hybrid**: pgvector similarity + KB-API keyword. Build similarity first (it is the bulk of the new pipeline work); keyword search is largely the original memo's `glab` approach and is cheap to add later.
 
+**Vector index is HNSW, and the chunk table is partitioned by `tenant_id`.** Two non-obvious reasons, both worth preserving:
+
+- IVFFlat cannot be created on an empty table (its k-means step needs rows) and its recall decays as rows are added past the initial clustering. Knowledge here starts empty per tenant and grows continuously, so IVFFlat fights the write pattern.
+- With approximate indexes a `WHERE` clause is applied *after* the index scan. A tenant filter matching ~10% of rows leaves roughly 4 rows out of the default `hnsw.ef_search = 40`. Partitioning by tenant confines the scan to one tenant's index instead, which is why tenant isolation here is a partitioning decision, not a filtering one.
+
+Long files are chunked, so one knowledge entry maps to many rows; collapse chunk hits to entry level with `MIN(distance)` after over-fetching. Index and query must use the *same* cast expression (`embedding::vector(768)`) or Postgres silently falls back to a sequential scan.
+
 **Change detection is cron polling, never webhooks** — Redmine lacks native webhook support, so polling is the only mechanism that works across all three backends uniformly.
 
 **Notifications**: label-applied-to-knowledge triggers delivery in-app, to Slack, and by email. Destination resolution is a label→destination mapping configured per tenant in admin settings — not KB assignees/watchers, since the auth model provides no KB-user-to-account linkage.
@@ -49,7 +56,7 @@ If you find yourself designing something that treats the local DB as authoritati
 
 ## Still open
 
-Deliberately deferred until real data or operational experience exists: cron polling interval, pgvector index type (ivfflat vs hnsw), hybrid-search merge strategy (RRF etc.), and the re-embedding workflow when a tenant switches embedding model.
+Deliberately deferred until real data or operational experience exists: cron polling interval, hybrid-search merge strategy (RRF etc.), and the re-embedding workflow when a tenant switches embedding model. That last one interacts with HNSW's slow `VACUUM` — pgvector's docs call for a `REINDEX` first — so design the two together.
 
 ## Regenerating the overview PNG
 
