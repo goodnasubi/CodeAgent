@@ -44,7 +44,11 @@ If you find yourself designing something that treats the local DB as authoritati
 
 Long files are chunked, so one knowledge entry maps to many rows; collapse chunk hits to entry level with `MIN(distance)` after over-fetching. Index and query must use the *same* cast expression (`embedding::vector(768)`) or Postgres silently falls back to a sequential scan.
 
-**Change detection is cron polling, never webhooks** — Redmine lacks native webhook support, so polling is the only mechanism that works across all three backends uniformly.
+**Change detection is cron polling, never webhooks** — Redmine lacks native webhook support, so polling is the only mechanism that works across all three backends uniformly. Interval is 10 minutes, and it belongs in config, not code. Note what that interval actually governs: knowledge written *through this system* is embedded immediately, so polling only catches edits made directly in the KB — a low-frequency event.
+
+**Hybrid results merge with RRF**, on ranks alone. Weighted score fusion is not an option here: the two searches return incomparable values (cosine distance vs. KB relevance), some KB search APIs return no score at all, and the three backends define relevance differently. Ranks are the only signal all of them reliably produce.
+
+**Switching a tenant's embedding model runs new and old vectors side by side**, then flips `embedding_model` in tenant config once every chunk is regenerated — searches keep serving from the old model until that moment, and rollback is one field. Delete the old rows afterward, then `REINDEX` before `VACUUM`. The trigger is manual and deliberately separate from changing the model setting, since a re-embed costs real money and time.
 
 **Notifications**: label-applied-to-knowledge triggers delivery in-app, to Slack, and by email. Destination resolution is a label→destination mapping configured per tenant in admin settings — not KB assignees/watchers, since the auth model provides no KB-user-to-account linkage.
 
@@ -56,7 +60,13 @@ Long files are chunked, so one knowledge entry maps to many rows; collapse chunk
 
 ## Still open
 
-Deliberately deferred until real data or operational experience exists: cron polling interval, hybrid-search merge strategy (RRF etc.), and the re-embedding workflow when a tenant switches embedding model. That last one interacts with HNSW's slow `VACUUM` — pgvector's docs call for a `REINDEX` first — so design the two together.
+Every design question is settled. What remains is numeric tuning against real data — the *approach* is fixed in each case, so do not reopen the decision when adjusting the number:
+
+| Knob | Starting value | What tells you to change it |
+|---|---|---|
+| cron polling interval | 10 min | how often people actually edit in the KB directly |
+| RRF constant `k` | 60 | whether similarity or keyword results should dominate |
+| `hnsw.ef_search` | 40 (default) | recall vs. latency |
 
 ## Regenerating the overview PNG
 
