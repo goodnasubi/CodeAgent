@@ -22,6 +22,13 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_GITHUB_
 
 The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` at `~/.local/bin` supplies both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Setup notes and the standalone design check live in [verify/README.md](verify/README.md).
 
+**GitLab must keep working on old, Free, self-hosted instances** — that is the deployment target, not gitlab.com. Two consequences already handled in `kb.backends.gitlab`, both verified live:
+
+- The related-issues API (`/links`) is a **Premium feature**. `relations()` treats 403/404 there as "feature absent" and falls back to GitLab's system notes, which record `mentioned in issue #N` on the referenced side whenever someone writes `#N`. System notes are ancient and tier-independent, so links stay discoverable everywhere. Cross-project mentions (`group/project#12`) are deliberately skipped — knowledge IDs are per-project `iid`s and the numbers would collide.
+- GitLab exposes two IDs: `id` is instance-wide, `iid` is the per-project counter that users actually see in `#123`. Knowledge IDs use `iid`. (One asymmetry: creating a link needs the *numeric project id*; the URL-encoded path 404s. Reading is unaffected.)
+
+Also GitLab-specific: notes include **system notes** ("added ~bug label"). Filter them out of `comments` or operating history gets embedded as knowledge.
+
 **Appending to knowledge means adding a comment, never editing the body** — concurrent body edits silently drop someone else's text, and all three backends have comments (GitLab notes, Redmine journal notes), so this is also the portable choice. `Knowledge.combined_text()` folds title + body + comments + attachment text into the string that gets embedded.
 
 Two GitHub-specific traps, both confirmed against the live API: its issues endpoint **also returns pull requests** (filter on the `pull_request` key or PRs enter the knowledge base), and newly created issues take a few seconds to appear in the list endpoint. The latter is harmless in production — we embed our own writes immediately, and polling only catches external edits — but it will flake any test that lists right after creating.

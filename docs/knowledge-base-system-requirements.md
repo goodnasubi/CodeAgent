@@ -79,8 +79,15 @@
 | KB | つながりの持ち方 |
 |---|---|
 | GitHub | 本文・コメント中の `#123` 参照（timeline API の `cross-referenced`） |
-| GitLab | 関連イシュー（links API）+ note 内の参照 |
+| GitLab | 関連イシュー（links API）**または**システムノートの参照記録（下記） |
 | Redmine | イシュー関連（relates / duplicates / blocks / precedes）を第一級で保持 |
+
+> **GitLab の関連イシューAPIは Premium 以上の機能**であり、Free 版や古い self-hosted では使えない。そのため実装では2経路を併用する。
+>
+> 1. `/links`（関連イシューAPI）— 使えれば `link_type` まで取れる。403/404 が返る環境では機能なしとして黙って諦める
+> 2. **システムノートの参照記録** — 本文やノートに `#123` と書くと、GitLab は参照された側に `mentioned in issue #123` というシステムノートを自動で残す。古くからある機能でプランにも依存しないため、①が使えない環境でもつながりを拾える
+>
+> ②は GitHub の `cross-referenced` と同じく被参照側にしか残らないが、全知識を走査し探索は両向きに辿るため欠落しない。他プロジェクト参照（`group/project#12`）は拾わない — 知識IDがプロジェクト内の連番であり、番号が混ざるため。
 
 **保存方法**: `knowledge_edges` テーブル。embedding と同じ派生データで、捨ててKBから作り直せる。テナントごとにパーティション分割する点も同じ。
 

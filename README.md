@@ -45,13 +45,20 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.ingest` | 取り込みパイプライン |
 | `kb.backends` | 知識ベースの共通インターフェース（GitLab / GitHub / Redmine 用） |
 | `kb.backends.github` | GitHub Issues 実装。実機に対する疎通テスト付き |
+| `kb.backends.gitlab` | GitLab Issues 実装。self-hosted / Free 版・旧バージョンでも動作 |
 | `kb.ranking` | RRF による検索結果のマージ（類似度・キーワード・つながりの3本） |
 
-GitHub 連携の疎通テストを動かす場合は、使い捨ての Private リポジトリを用意して次を渡します。
+KB 連携の疎通テストを動かす場合は、使い捨てのリポジトリ／プロジェクトを用意して接続情報を渡します。
 
 ```bash
 KB_GITHUB_TEST_REPO=owner/repo KB_GITHUB_TOKEN="$(gh auth token)" uv run python -m pytest
 ```
+
+```bash
+KB_GITLAB_TEST_PROJECT=group/project KB_GITLAB_TOKEN=xxxxx uv run python -m pytest
+```
+
+self-hosted GitLab を対象にする場合は `KB_GITLAB_API_BASE=https://gitlab.example.co.jp/api/v4` も指定します。
 
 実 embedding プロバイダ（OpenAI / Gemini / Claude）は API キーが必要なため未実装です。開発とテストには `HashingEmbeddingProvider` を使います。語彙を共有するテキストが近いベクトルになるため、「似た知識が見つかること」をキーなしで検証できます。
 
