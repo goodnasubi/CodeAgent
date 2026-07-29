@@ -362,6 +362,25 @@ code {
   background: var(--indigo-soft);
   border-color: var(--indigo-line);
 }
+.sources {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-top: 10px;
+  font-size: 13px;
+}
+.sources input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  font-size: 13px;
+}
+.sources button {
+  white-space: nowrap;
+  padding: 5px 11px;
+  font-size: 13px;
+}
+
 .composer {
   display: flex;
   gap: 8px;

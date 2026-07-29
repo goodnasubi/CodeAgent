@@ -12,7 +12,7 @@ from typing import Any, Iterator
 from uuid import UUID
 
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,12 @@ from .db.conversations import ROLE_ASSISTANT, ROLE_USER, ConversationRepository
 from .db.notifications import NotificationRepository
 from .db.repository import ChunkRepository
 from .db.sync import SyncStateRepository
+from .documents import (
+    ConversionError,
+    ConvertedDocument,
+    DocumentConverter,
+    UnsupportedSource,
+)
 from .factory import (
     KB_TYPES,
     BackendNotConfigured,
@@ -34,6 +40,10 @@ from .sync import SyncRunner
 from .tenants import KbConnection, ModelSettings, TenantRepository, load_cipher
 
 DSN_ENV = "KB_DSN"
+
+#: 取り出した本文の上限。GitHub の Issue 本文が 65,536 文字までなので、
+#: 利用者が書き足す分を残してそれより手前で切る
+MAX_EXTRACTED_CHARS = 60_000
 
 
 def _dsn() -> str:
@@ -121,6 +131,18 @@ class SearchOut(BaseModel):
     results: list[SearchHitOut]
     used: list[str]
     skipped: dict[str, str]
+
+
+class UrlIn(BaseModel):
+    url: str
+
+
+class ExtractedOut(BaseModel):
+    """取り込んだ素材を、そのまま検索欄や登録フォームに流し込める形で返す。"""
+
+    source_name: str
+    text: str
+    truncated: bool = False
 
 
 class KnowledgeIn(BaseModel):
@@ -318,6 +340,47 @@ def create_app() -> FastAPI:
              tags=["account"])
     def list_accounts(tenant_id: UUID, repo: TenantRepository = Depends(tenants_repo)):
         return [AccountOut(**a.__dict__) for a in repo.list_accounts(tenant_id)]
+
+    # ---------------------------------------------------------- 素材の取り込み
+
+    @app.post("/api/tenants/{tenant_id}/extract/file", response_model=ExtractedOut,
+              tags=["documents"])
+    async def extract_file(tenant_id: UUID, file: UploadFile = File(...)):
+        """アップロードされたファイルを本文テキストにして返す。
+
+        ここでは KB にも DB にも書かない。取り出した本文で**まず検索し**、
+        見つからなければ登録する、という流れのための素材を返すだけ。
+        """
+        data = await file.read()
+        return _extract(
+            lambda c: c.convert_bytes(data, filename=file.filename or "upload")
+        )
+
+    @app.post("/api/tenants/{tenant_id}/extract/url", response_model=ExtractedOut,
+              tags=["documents"])
+    def extract_url(tenant_id: UUID, body: UrlIn):
+        return _extract(lambda c: c.convert_url(body.url))
+
+    def _extract(run: Any) -> ExtractedOut:
+        # 画像の OCR はテナントが選んだ LLM に委譲する設計だが、その LLM
+        # クライアントがまだ無いので今は渡していない（実プロバイダ待ち）。
+        converter = DocumentConverter()
+        try:
+            converted: ConvertedDocument = run(converter)
+        except UnsupportedSource as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ConversionError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+        text = converted.text
+        # KB 側の本文長に収める。GitHub の Issue 本文は 65,536 文字までで、
+        # 超えると登録そのものが弾かれる
+        truncated = len(text) > MAX_EXTRACTED_CHARS
+        if truncated:
+            text = text[:MAX_EXTRACTED_CHARS]
+        return ExtractedOut(
+            source_name=converted.source_name, text=text, truncated=truncated
+        )
 
     # -------------------------------------------------------------- 検索
 

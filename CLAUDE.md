@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync, the HTTP API, and all four backend adapters. `web/` holds the React UI. **Still missing: real embedding providers** (no API keys here) and a resident scheduler to run `SyncRunner` on the 10-minute interval — the sync itself works and is exposed at `POST /api/admin/tenants/{id}/sync`.
+Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync, the HTTP API, and all four backend adapters. `web/` holds the React UI. **Still missing: real LLM and embedding providers** (no API keys here — this also blocks image OCR) and a resident scheduler to run `SyncRunner` on the 10-minute interval — the sync itself works and is exposed at `POST /api/admin/tenants/{id}/sync`.
 
 ```bash
 uv run python -m pytest
@@ -102,7 +102,7 @@ Two things about edges that are easy to get wrong, both found by tests:
 
 Default expansion is one hop; more pulls in weakly related knowledge. Damp the signal with an RRF weight rather than by cutting hops.
 
-`HybridSearch` is where the three signals actually come together, and it is written to **degrade rather than fail**: a backend that lacks a capability is skipped via `supports_*` (never called), and a KB outage during keyword search is caught so similarity results still return — that half runs entirely on pgvector. Every skip is recorded in `SearchDiagnostics.skipped` with a reason, so "the graph added nothing" is distinguishable from "the graph was never consulted".
+`HybridSearch` is where the three signals actually come together, and it is written to **degrade rather than fail**: a backend that lacks a capability is skipped via `supports_*` (never called), and a KB outage during keyword search is caught so similarity results still return — that half runs entirely on pgvector. Every skip is recorded in `SearchDiagnostics.skipped` with a reason, so "the graph added nothing" is distinguishable from "the graph was never consulted". **A signal that ran and returned zero rows must record a reason too** — keyword search originally left the entry empty on a no-match, which made a working search look identical to one that was never called.
 
 Search results are enriched from `knowledge_index`, a per-knowledge metadata table written at ingest time — **not** by calling the KB per hit. N+1 fetches would break Re:lation's 60 requests/minute immediately, and the local copy keeps titles and URLs displayable while the KB is down.
 
@@ -111,6 +111,16 @@ Search results are enriched from `knowledge_index`, a per-knowledge metadata tab
 **The API and the UI.** `kb.api` (FastAPI) is the only thing the browser talks to; `web/` is the React app, proxying `/api` in dev. Two rules the API enforces and must keep enforcing: **the KB token is never in a response** (`GET /kb` returns the connection without it), and `KB_SECRET_KEY` must be set or startup fails — a missing key that only surfaces when someone saves a token is worse than one that stops the process.
 
 `GET /kb` also reports `supports_keyword_search` / `supports_relations` so the settings screen can tell the operator which searches their backend cannot do, rather than leaving them wondering why results look thin.
+
+**Files and URLs enter through `POST /extract/file` and `/extract/url`, which convert and return text without writing anywhere.** That shape is deliberate: the same extracted text feeds *both* the search that runs first and the registration that happens only if nothing was found, so extraction cannot be folded into either one. The UI drops the result into the message box rather than holding it hidden, so the operator can see and edit what will actually be searched and stored.
+
+Three constraints that shape it:
+
+- **`file://` URLs read arbitrary server files** — markitdown will happily return `/etc/hostname`. `DocumentConverter.convert_url` allows only `http`/`https` (`ALLOWED_URL_SCHEMES`), and that check belongs on the converter, not the endpoint, so every caller inherits it.
+- Extracted text is cut at `MAX_EXTRACTED_CHARS` (60,000) with a `truncated` flag, because **GitHub rejects issue bodies over 65,536 characters** — silently handing back text that cannot be registered is worse than saying it was shortened. Uploads cap at `MAX_SOURCE_BYTES` (20MB).
+- **Image OCR does not work yet.** The design delegates it to the tenant's LLM, and no LLM client exists (same blocker as real embeddings), so `DocumentConverter()` is built without one and images come back with no text. The UI says so instead of failing silently.
+
+File upload needs `python-multipart`. On the frontend, `request()` must *not* set `Content-Type` for `FormData` — writing it by hand drops the multipart boundary and the server cannot parse the body.
 
 Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption). The dev frontend needs `npm install` in `web/`; **Ubuntu 20.04's glibc 2.31 is too old for rollup's native binary**, so `package.json` overrides `rollup` to `@rollup/wasm-node`. Don't remove that override without checking the platform.
 

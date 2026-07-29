@@ -11,12 +11,24 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from markitdown import MarkItDown
+
+#: 受け付ける最大サイズ。1 ファイルが数千チャンクに化けると embedding 費用が跳ねる
+MAX_SOURCE_BYTES = 20 * 1024 * 1024
+
+#: URL 取り込みで許す scheme。**file:// を通すとサーバー上の任意のファイルが
+#: 読めてしまう**（markitdown は実際に /etc/hostname を返す）ため、素通しにしない。
+ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
 
 
 class ConversionError(RuntimeError):
     """変換に失敗した。元の例外を __cause__ に持つ。"""
+
+
+class UnsupportedSource(ValueError):
+    """入力そのものを受け付けない（大きすぎる、scheme が許されていない等）。"""
 
 
 @dataclass(frozen=True)
@@ -61,6 +73,12 @@ class DocumentConverter:
         markitdown は拡張子から形式を判定するため、元の拡張子を保った
         一時ファイルに書き出してから渡す。
         """
+        if len(data) > MAX_SOURCE_BYTES:
+            raise UnsupportedSource(
+                f"{filename} が大きすぎます（上限 {MAX_SOURCE_BYTES // (1024 * 1024)}MB）"
+            )
+        # 受け取った名前はそのまま使わない。パス区切りを含んでいれば一時ディレクトリの
+        # 外に書けてしまう
         suffix = Path(filename).suffix
         tmp_dir = Path(tempfile.mkdtemp(prefix="kb-convert-"))
         try:
@@ -72,6 +90,11 @@ class DocumentConverter:
         return ConvertedDocument(source_name=filename, text=converted.text)
 
     def convert_url(self, url: str) -> ConvertedDocument:
+        scheme = urlparse(url).scheme.lower()
+        if scheme not in ALLOWED_URL_SCHEMES:
+            raise UnsupportedSource(
+                f"{scheme or '(scheme なし)'} は受け付けません。http か https を指定してください"
+            )
         try:
             result = self._md.convert(url)
         except Exception as exc:

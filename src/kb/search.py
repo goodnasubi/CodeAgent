@@ -138,7 +138,11 @@ class HybridSearch:
                 logger.warning("キーワード検索に失敗（縮退して続行）: %s", exc)
                 skipped[SIGNAL_KEYWORD] = f"KB エラー: {exc}"
             else:
-                if found:
+                if not found:
+                    # 0 件でも理由を残す。ここを空けると「一致が無かった」と
+                    # 「そもそも呼ばなかった」が診断上そっくりになる
+                    skipped[SIGNAL_KEYWORD] = "一致する語が無い"
+                else:
                     lists[SIGNAL_KEYWORD] = [k.id for k in found]
                     # まだ取り込んでいない知識がキーワード検索で出ることがある
                     # （取り込みの前に KB 側で作られた場合など）。表示が空欄に

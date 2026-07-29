@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ClipboardEvent } from "react";
 import { api, ApiError } from "../api";
-import type { Conversation, Message, Notification, SearchHit } from "../api";
+import type {
+  Conversation,
+  Extracted,
+  Message,
+  Notification,
+  SearchHit,
+} from "../api";
 import { cacheMessages, cachedMessages, type Identity } from "../session";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -48,6 +55,10 @@ export function Chat({ identity }: { identity: Identity }) {
   const [registering, setRegistering] = useState(false);
   const [form, setForm] = useState<{ title: string; body: string } | null>(null);
   const [searched, setSearched] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [urlDraft, setUrlDraft] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(async () => {
@@ -123,6 +134,47 @@ export function Chat({ identity }: { identity: Identity }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  /** ファイル・URL の中身を本文テキストにして、入力欄に足す。
+   *
+   * 隠し持たずに入力欄へ出すのは、何が検索・登録に使われるのかを
+   * 利用者が見て直せるようにするため。
+   */
+  async function absorb(run: () => Promise<Extracted>) {
+    setAttaching(true);
+    setError(null);
+    setNote(null);
+    try {
+      const doc = await run();
+      if (!doc.text.trim()) {
+        setNote(
+          `${doc.source_name} から文字を取り出せませんでした。` +
+            "（画像の文字起こしは、LLM を設定すると使えるようになります）",
+        );
+        return;
+      }
+      setDraft((prev) =>
+        `${prev.trim()}\n\n--- ${doc.source_name} ---\n${doc.text}`.trim(),
+      );
+      setNote(
+        doc.truncated
+          ? `${doc.source_name} は長いため、途中まで取り込みました。`
+          : `${doc.source_name} を取り込みました。`,
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setAttaching(false);
+    }
+  }
+
+  /** 貼り付けた画像やファイルも同じ経路で取り込む。 */
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const file = Array.from(e.clipboardData.files)[0];
+    if (!file) return; // 文字の貼り付けは既定の動作に任せる
+    e.preventDefault();
+    absorb(() => api.extractFile(identity.tenantId, file));
   }
 
   /** 直近の質問を下書きにして登録フォームを開く。 */
@@ -216,11 +268,51 @@ export function Chat({ identity }: { identity: Identity }) {
             )}
             <div ref={endRef} />
           </div>
+          <div className="sources">
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={attaching}
+            >
+              {attaching ? "読み取り中…" : "ファイルを選ぶ"}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                // 同じファイルをもう一度選べるように値を戻す
+                e.target.value = "";
+                if (file) absorb(() => api.extractFile(identity.tenantId, file));
+              }}
+            />
+            <input
+              value={urlDraft}
+              placeholder="https://… の中身を取り込む"
+              onChange={(e) => setUrlDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || !urlDraft.trim()) return;
+                absorb(() => api.extractUrl(identity.tenantId, urlDraft.trim()));
+                setUrlDraft("");
+              }}
+            />
+            <button
+              onClick={() => {
+                absorb(() => api.extractUrl(identity.tenantId, urlDraft.trim()));
+                setUrlDraft("");
+              }}
+              disabled={attaching || !urlDraft.trim()}
+            >
+              取り込む
+            </button>
+          </div>
+          {note && <p className="muted" style={{ margin: "4px 2px 0" }}>{note}</p>}
           <div className="composer">
             <textarea
               value={draft}
-              placeholder="例: ORA-01555 というエラーが出ました"
+              placeholder="例: ORA-01555 というエラーが出ました（画像やファイルの貼り付けもできます）"
               onChange={(e) => setDraft(e.target.value)}
+              onPaste={onPaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
               }}

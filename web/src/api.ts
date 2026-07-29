@@ -85,6 +85,12 @@ export interface SyncReport {
   aborted: string | null;
 }
 
+export interface Extracted {
+  source_name: string;
+  text: string;
+  truncated: boolean;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -95,9 +101,14 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // FormData のときは Content-Type を書かない。手で書くと multipart の
+  // boundary が付かず、サーバー側でパースできなくなる
+  const isForm = init?.body instanceof FormData;
   const response = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: isForm
+      ? (init?.headers ?? {})
+      : { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
     // サーバーが理由を返していればそれを見せる。汎用文言だと原因が分からない
@@ -149,6 +160,21 @@ export const api = {
     request<{ ok: boolean }>(`/api/tenants/${tenantId}/models`, {
       method: "PUT",
       ...json(body),
+    }),
+
+  // 素材の取り込み
+  extractFile: (tenantId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<Extracted>(`/api/tenants/${tenantId}/extract/file`, {
+      method: "POST",
+      body: form,
+    });
+  },
+  extractUrl: (tenantId: string, url: string) =>
+    request<Extracted>(`/api/tenants/${tenantId}/extract/url`, {
+      method: "POST",
+      ...json({ url }),
     }),
 
   // 検索・知識

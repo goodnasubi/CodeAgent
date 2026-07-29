@@ -160,6 +160,55 @@ def test_registering_without_a_kb_is_rejected(client, tenant):
     assert response.status_code == 400
 
 
+# --------------------------------------------------------- 素材の取り込み
+
+
+def test_uploaded_file_comes_back_as_text(client, tenant):
+    response = client.post(
+        f"/api/tenants/{tenant}/extract/file",
+        files={"file": ("log.txt", "ORA-01555 が出ました".encode(), "text/plain")},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["source_name"] == "log.txt"
+    assert "ORA-01555" in body["text"]
+    assert body["truncated"] is False
+
+
+def test_long_extraction_is_cut_and_says_so(client, tenant, monkeypatch):
+    """KB 側の本文長を超える素材は、黙って弾かれるのでなく切って知らせる。"""
+    import kb.api
+
+    monkeypatch.setattr(kb.api, "MAX_EXTRACTED_CHARS", 50)
+    response = client.post(
+        f"/api/tenants/{tenant}/extract/file",
+        files={"file": ("long.txt", b"a" * 500, "text/plain")},
+    )
+    body = response.json()
+
+    assert len(body["text"]) == 50
+    assert body["truncated"] is True
+
+
+def test_extraction_does_not_touch_the_kb(client, tenant):
+    """取り込みは素材を返すだけ。KB 未設定でも動かないと検索の前段にならない。"""
+    assert client.get(f"/api/tenants/{tenant}/kb").json() is None
+    response = client.post(
+        f"/api/tenants/{tenant}/extract/file",
+        files={"file": ("a.txt", b"hello", "text/plain")},
+    )
+    assert response.status_code == 200
+
+
+def test_non_http_url_is_refused(client, tenant):
+    """file:// を通すとサーバー上のファイルが読めてしまう。"""
+    response = client.post(
+        f"/api/tenants/{tenant}/extract/url", json={"url": "file:///etc/hostname"}
+    )
+    assert response.status_code == 400
+
+
 # --------------------------------------------------------------- 通知
 
 

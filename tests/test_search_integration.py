@@ -179,6 +179,16 @@ def test_no_backend_at_all_still_searches(repo, tenant_id, embedder, seeded):
     assert SIGNAL_KEYWORD in response.diagnostics.skipped
 
 
+def test_keyword_search_with_no_match_says_so(repo, tenant_id, embedder, seeded):
+    """0 件は「呼ばなかった」とは別物。診断で区別できないと切り分けられない。"""
+    backend = FakeBackend(hits=[])
+    response = run(repo, tenant_id, embedder, backend)
+
+    assert backend.search_calls == 1, "呼んだ上での 0 件を確かめたい"
+    assert SIGNAL_KEYWORD not in response.diagnostics.used
+    assert response.diagnostics.skipped[SIGNAL_KEYWORD] == "一致する語が無い"
+
+
 def test_knowledge_without_relations_reports_why_graph_was_skipped(
     repo, tenant_id, embedder, seeded
 ):
