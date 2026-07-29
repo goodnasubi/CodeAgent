@@ -8,9 +8,9 @@
 
 ## 現在の状態
 
-設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、ハイブリッド検索（類似度・キーワード・つながりの3信号）、通知、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
+設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、ハイブリッド検索（類似度・キーワード・つながりの3信号）、通知、差分取り込み、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
 
-未実装: UI、実 embedding プロバイダ、cron ポーリングの常駐プロセス。
+未実装: UI、実 embedding プロバイダ、cron の常駐プロセス（同期処理自体は実装済みで、定期実行の仕組みが未着手）。
 
 ## 開発
 
@@ -50,6 +50,7 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.backends.relation` | [Re:lation](https://developer.ingage.jp/) 実装。キーワード検索とつながりは API に無い |
 | `kb.ranking` | RRF による検索結果のマージ（順位のみを使う） |
 | `kb.search` | ハイブリッド検索。3つの信号を束ね、使えない信号は自動で飛ばす |
+| `kb.sync` | KB からの取り込み（cron ポーリング）。取り込み → 通知まで |
 | `kb.notifications` | ラベル付与を起点とした通知（アプリ内 / Slack / メール） |
 | `kb.db.notifications` | 通知の設定・ラベル状態・アプリ内受信箱 |
 

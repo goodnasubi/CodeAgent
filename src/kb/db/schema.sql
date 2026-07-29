@@ -33,6 +33,15 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 -- 行は「どの知識が宣言したつながりか」の向きで 1 本だけ持つ。両向きに
 -- 入れると、片方を同期し直したときにもう片方が宣言した辺まで巻き添えで
 -- 消えるため。探索側で両向きを見て無向グラフとして扱う。
+-- ポーリングの進捗。どこまで取り込んだかを覚えておく。
+CREATE TABLE IF NOT EXISTS sync_state (
+  tenant_id      UUID        PRIMARY KEY,
+  last_synced_at TIMESTAMPTZ,          -- ここまでの更新は取り込み済み
+  last_run_at    TIMESTAMPTZ,
+  last_error     TEXT
+);
+
+
 -- 知識 1 件ぶんの見出し情報。検索結果の表示に使う派生データ。
 --
 -- 検索のたびに KB へ問い合わせると N+1 になり、レート制限の厳しい

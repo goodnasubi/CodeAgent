@@ -104,6 +104,14 @@ Search results are enriched from `knowledge_index`, a per-knowledge metadata tab
 
 `candidates_per_signal` (how many each signal contributes) is deliberately separate from `limit` (how many come back), and small values are **not** silently clamped up to `limit`.
 
+`SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
+
+- **The checkpoint timestamp is captured before fetching, not after.** Using the finish time would drop anything edited while the fetch was running.
+- **The checkpoint only advances on a fully clean run.** A fetch failure or any per-item failure leaves it where it was, so the next poll retries that range. Re-ingesting already-stored knowledge is harmless — `replace_issue_chunks` replaces rows for the same model rather than appending.
+- **A failure on one knowledge never aborts the batch**, and a `relations()` failure still ingests the knowledge itself: losing one search signal beats losing the knowledge.
+
+First run starts from `EPOCH`, so onboarding a tenant imports everything the KB already holds. That is exactly why the notification dispatcher treats "no prior label state" as "notify nothing" — otherwise onboarding fires a notification per pre-existing label.
+
 **Hybrid results merge with RRF**, on ranks alone. Weighted score fusion is not an option here: the two searches return incomparable values (cosine distance vs. KB relevance), some KB search APIs return no score at all, and the three backends define relevance differently. Ranks are the only signal all of them reliably produce.
 
 **Switching a tenant's embedding model runs new and old vectors side by side**, then flips `embedding_model` in tenant config once every chunk is regenerated — searches keep serving from the old model until that moment, and rollback is one field. Delete the old rows afterward, then `REINDEX` before `VACUUM`. The trigger is manual and deliberately separate from changing the model setting, since a re-embed costs real money and time.
