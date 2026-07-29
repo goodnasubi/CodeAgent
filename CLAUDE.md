@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Implemented under `src/kb/`: the ingest pipeline (convert → chunk → embed → store), similarity search, and the GitHub knowledge-base adapter. Not yet built: GitLab/Redmine adapters, hybrid-result merging, notifications, UI, and real embedding providers.
+Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync, the HTTP API, and all four backend adapters. `web/` holds the React UI. **Still missing: real embedding providers** (no API keys here) and a resident scheduler to run `SyncRunner` on the 10-minute interval — the sync itself works and is exposed at `POST /api/admin/tenants/{id}/sync`.
 
 ```bash
 uv run python -m pytest
@@ -15,6 +15,8 @@ Tests that need an external service skip themselves unless its env vars are set.
 ```bash
 KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_GITHUB_TEST_REPO=goodnasubi/kb-adapter-test KB_GITHUB_TOKEN="$(gh auth token)" uv run python -m pytest
 ```
+
+`uvicorn` without `--reload` will happily serve stale code after an edit — that cost a debugging round once. Use `--reload` when testing API changes by hand.
 
 `kb-adapter-test` is a private throwaway repo for adapter tests; the fixtures close the issues they create (GitHub has no delete). Mocked tests alone will not catch API drift — the live suite has already caught one divergence, so keep both.
 
@@ -81,6 +83,8 @@ If you find yourself designing something that treats the local DB as authoritati
 
 Long files are chunked, so one knowledge entry maps to many rows; collapse chunk hits to entry level with `MIN(distance)` after over-fetching.
 
+**Similarity search must cut off at `max_distance` (default 0.85).** Without it every query returns the top N no matter how far away they are — which floods results with noise *and* makes "nothing found, register it as new" unreachable, since the empty state never happens. The right value is embedding-model-specific: `HashingEmbeddingProvider` collides heavily on single Japanese characters (unrelated text lands around 0.84), so **do not tune this number against the dev provider** — only its mechanism can be tested there, using an ASCII query with zero vocabulary overlap.
+
 Three behaviours here were verified against PostgreSQL 17 + pgvector 0.8.5 (`verify/pgvector-design.sql` reproduces all of them) and each fails *silently*:
 
 - Index and query must use the **same cast expression** (`embedding::vector(768)`) or Postgres falls back to a sequential scan with no error.
@@ -146,6 +150,7 @@ Every design question is settled. What remains is numeric tuning against real da
 | cron polling interval | 10 min | how often people actually edit in the KB directly |
 | RRF constant `k` | 60 | whether similarity or keyword results should dominate |
 | `hnsw.ef_search` | 40 (default) | recall vs. latency |
+| `max_distance` | 0.85 | irrelevant hits leaking in, or relevant ones being cut |
 
 ## Regenerating the overview PNG
 

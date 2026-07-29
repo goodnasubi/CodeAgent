@@ -46,6 +46,8 @@ export function Chat({ identity }: { identity: Identity }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
+  const [form, setForm] = useState<{ title: string; body: string } | null>(null);
+  const [searched, setSearched] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(async () => {
@@ -105,6 +107,7 @@ export function Chat({ identity }: { identity: Identity }) {
       const found = await api.search(identity.tenantId, text);
       setHits(found.results);
       setSkipped(found.skipped);
+      setSearched(true);
 
       const reply = found.results.length
         ? `似た記録を ${found.results.length} 件見つけました。右の一覧から確認できます。`
@@ -122,24 +125,33 @@ export function Chat({ identity }: { identity: Identity }) {
     }
   }
 
-  async function registerNew() {
+  /** 直近の質問を下書きにして登録フォームを開く。 */
+  function openForm() {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    if (!lastUser) return;
+    const text = lastUser?.content ?? draft.trim();
+    setForm({ title: text.slice(0, 60), body: text });
+  }
+
+  async function submitForm() {
+    if (!form || !form.title.trim()) return;
     setRegistering(true);
     setError(null);
     try {
       const created = await api.register(
         identity.tenantId,
-        lastUser.content.slice(0, 80),
-        lastUser.content,
+        form.title.trim(),
+        form.body,
       );
+      setForm(null);
       if (current) {
         await api.addMessage(
           current,
           "assistant",
           `新しい知識として登録しました: ${created.title}`,
         );
-        setMessages(await api.messages(current));
+        const refreshed = await api.messages(current);
+        setMessages(refreshed);
+        cacheMessages(current, refreshed);
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -240,12 +252,60 @@ export function Chat({ identity }: { identity: Identity }) {
           {hits.map((h) => (
             <Hit key={h.kb_issue_id} hit={h} />
           ))}
-          {hits.length === 0 && <p className="muted">まだ検索していません</p>}
 
-          {hits.length === 0 && messages.some((m) => m.role === "user") && (
-            <button onClick={registerNew} disabled={registering}>
-              {registering ? "登録中…" : "新しい知識として登録"}
+          {hits.length === 0 && (
+            <p className="muted">
+              {searched
+                ? "見つかりませんでした。新しい知識として登録できます。"
+                : "まだ検索していません"}
+            </p>
+          )}
+
+          {/* 見つかった場合でも登録したいことがあるので、常に出す */}
+          {form === null ? (
+            <button
+              className={hits.length === 0 && searched ? "primary" : ""}
+              onClick={openForm}
+              disabled={messages.length === 0 && !draft.trim()}
+              style={{ width: "100%", marginTop: 8 }}
+            >
+              新しい知識として登録
             </button>
+          ) : (
+            <div className="card" style={{ marginTop: 10, padding: 12 }}>
+              <div className="field">
+                <label htmlFor="nt">題名</label>
+                <input
+                  id="nt"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="nb">内容</label>
+                <textarea
+                  id="nb"
+                  rows={5}
+                  value={form.body}
+                  onChange={(e) => setForm({ ...form, body: e.target.value })}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="primary"
+                  onClick={submitForm}
+                  disabled={registering || !form.title.trim()}
+                >
+                  {registering ? "登録中…" : "登録する"}
+                </button>
+                <button onClick={() => setForm(null)} disabled={registering}>
+                  やめる
+                </button>
+              </div>
+              <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
+                知識ベース側に作成されます。
+              </p>
+            </div>
           )}
 
           {Object.keys(skipped).length > 0 && (

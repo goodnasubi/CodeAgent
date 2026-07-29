@@ -16,6 +16,18 @@ _SCHEMA = Path(__file__).with_name("schema.sql")
 # 検索時に取得するチャンク数。ef_search はこれ以上でなければならない。
 DEFAULT_OVERFETCH = 100
 
+# これより遠い知識は「関連なし」として捨てる（コサイン距離。0 が同一、
+# 1 が無関係、2 が正反対）。
+#
+# **足切りが無いと、どんな質問にも必ず何かが返る。** 無関係な結果が並ぶ
+# だけでなく、「見つからなかったので新しく登録する」という筋道に永久に
+# 到達できなくなる。
+#
+# 適切な値は embedding モデルによって変わるため、実データを見て調整する
+# 前提の値。開発用のハッシュ実装での実測は、関連ありが 0.46〜0.65、
+# 無関係が 0.88〜1.00 だった。
+DEFAULT_MAX_DISTANCE = 0.85
+
 
 @dataclass(frozen=True)
 class ChunkRow:
@@ -168,8 +180,13 @@ class ChunkRepository:
         model: str,
         limit: int = 10,
         overfetch: int = DEFAULT_OVERFETCH,
+        max_distance: float | None = DEFAULT_MAX_DISTANCE,
     ) -> list[SearchHit]:
-        """類似度検索。チャンク単位で多めに取り、知識単位に畳んで返す。"""
+        """類似度検索。チャンク単位で多めに取り、知識単位に畳んで返す。
+
+        `max_distance` より遠い知識は返さない。None を渡すと足切りしない
+        （距離の分布を調べたいときなど）。
+        """
         dimensions = len(query_embedding)
         if overfetch < limit:
             raise ValueError("overfetch must be >= limit")
@@ -199,6 +216,7 @@ class ChunkRepository:
                     ") "
                     "SELECT kb_issue_id, source_name, MIN(dist) AS best "
                     "FROM hits GROUP BY kb_issue_id, source_name "
+                    "HAVING MIN(dist) <= %(max_distance)s "
                     "ORDER BY best LIMIT %(limit)s"
                 ).format(dim=sql.Literal(dimensions)),
                 {
@@ -207,6 +225,8 @@ class ChunkRepository:
                     "model": model,
                     "overfetch": overfetch,
                     "limit": limit,
+                    # 足切りしない指定は、比較が必ず真になる大きな値で表す
+                    "max_distance": 99.0 if max_distance is None else max_distance,
                 },
             )
             return [SearchHit(r[0], r[1], float(r[2])) for r in cur.fetchall()]

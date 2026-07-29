@@ -18,6 +18,10 @@ DOCS = {
 }
 QUERY = "ORA-01555"
 
+# 取り込んだ知識と語彙がまったく重ならない問い合わせ。足切りの仕組みを
+# 決定的に検証するために使う。
+UNRELATED_QUERY = "QWERTYUIOP"
+
 
 class FakeBackend:
     """KB の代わり。能力と応答を差し替えられるようにする。"""
@@ -222,3 +226,50 @@ def test_ingest_knowledge_embeds_comments_too(repo, tenant_id, embedder):
         tenant_id=tenant_id, query="MTU 設定"
     )
     assert [r.kb_issue_id for r in response.results] == ["with-comment"]
+
+
+# ------------------------------------------------ 関連なしを返さないこと
+
+
+def test_unrelated_query_returns_nothing(repo, tenant_id, embedder, seeded):
+    """足切りが無いと、どんな質問にも必ず何かが返ってしまう。
+
+    無関係な結果が並ぶだけでなく、「見つからなかったので新しく登録する」
+    という筋道に永久に到達できなくなる。
+
+    検証には**語彙の重なりが皆無な**問い合わせを使う。開発用のハッシュ
+    embedding は文字単位の衝突が多く、日本語の無関係な文でも距離が
+    0.84 程度まで下がるため、閾値の「値」の妥当性はこれでは測れない
+    （仕組みが働いていることだけを確かめる）。
+    """
+    response = HybridSearch(repository=repo, embedder=embedder).search(
+        tenant_id=tenant_id, query=UNRELATED_QUERY
+    )
+    assert response.results == [], (
+        f"無関係な質問に結果が返っている: "
+        f"{[r.kb_issue_id for r in response.results]}"
+    )
+
+
+def test_related_query_still_returns_results(repo, tenant_id, embedder, seeded):
+    """足切りを入れても、関連する知識は返ること。"""
+    response = HybridSearch(repository=repo, embedder=embedder).search(
+        tenant_id=tenant_id, query=QUERY
+    )
+    assert [r.kb_issue_id for r in response.results][0] == "child"
+
+
+def test_threshold_can_be_disabled(repo, tenant_id, embedder, seeded):
+    """距離の分布を調べたいときのために、足切りを外せること。"""
+    response = HybridSearch(
+        repository=repo, embedder=embedder, max_distance=None
+    ).search(tenant_id=tenant_id, query=UNRELATED_QUERY)
+    assert response.results, "足切りを外しても何も返らない"
+
+
+def test_no_results_reports_why(repo, tenant_id, embedder, seeded):
+    """空の結果に理由を添える。画面で「登録しますか」と促せるようにする。"""
+    response = HybridSearch(repository=repo, embedder=embedder).search(
+        tenant_id=tenant_id, query=UNRELATED_QUERY
+    )
+    assert response.diagnostics.skipped[SIGNAL_VECTOR] == "十分に近い知識が無い"

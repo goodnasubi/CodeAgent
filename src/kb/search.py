@@ -17,7 +17,7 @@ from typing import Mapping
 from uuid import UUID
 
 from .backends.base import KnowledgeBase, KnowledgeBaseError
-from .db.repository import ChunkRepository
+from .db.repository import DEFAULT_MAX_DISTANCE, ChunkRepository
 from .embeddings import EmbeddingProvider
 from .ranking import DEFAULT_K, rank_by_hops, reciprocal_rank_fusion
 
@@ -72,6 +72,7 @@ class HybridSearch:
         k: int = DEFAULT_K,
         weights: Mapping[str, float] | None = None,
         hops: int = 1,
+        max_distance: float | None = DEFAULT_MAX_DISTANCE,
     ) -> None:
         self._repo = repository
         self._embedder = embedder
@@ -79,6 +80,7 @@ class HybridSearch:
         self._k = k
         self._weights = dict(DEFAULT_WEIGHTS if weights is None else weights)
         self._hops = hops
+        self._max_distance = max_distance
 
     def search(
         self,
@@ -115,10 +117,13 @@ class HybridSearch:
             model=self._embedder.model,
             limit=candidates,
             overfetch=max(overfetch, candidates),
+            max_distance=self._max_distance,
         )
         vector_ids = [h.kb_issue_id for h in hits]
         if vector_ids:
             lists[SIGNAL_VECTOR] = vector_ids
+        else:
+            skipped[SIGNAL_VECTOR] = "十分に近い知識が無い"
 
         # ---- キーワード検索（KB 側。使えないバックエンドがある）
         if self._backend is None:
