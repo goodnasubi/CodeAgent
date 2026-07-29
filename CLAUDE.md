@@ -98,6 +98,12 @@ Two things about edges that are easy to get wrong, both found by tests:
 
 Default expansion is one hop; more pulls in weakly related knowledge. Damp the signal with an RRF weight rather than by cutting hops.
 
+`HybridSearch` is where the three signals actually come together, and it is written to **degrade rather than fail**: a backend that lacks a capability is skipped via `supports_*` (never called), and a KB outage during keyword search is caught so similarity results still return — that half runs entirely on pgvector. Every skip is recorded in `SearchDiagnostics.skipped` with a reason, so "the graph added nothing" is distinguishable from "the graph was never consulted".
+
+Search results are enriched from `knowledge_index`, a per-knowledge metadata table written at ingest time — **not** by calling the KB per hit. N+1 fetches would break Re:lation's 60 requests/minute immediately, and the local copy keeps titles and URLs displayable while the KB is down.
+
+`candidates_per_signal` (how many each signal contributes) is deliberately separate from `limit` (how many come back), and small values are **not** silently clamped up to `limit`.
+
 **Hybrid results merge with RRF**, on ranks alone. Weighted score fusion is not an option here: the two searches return incomparable values (cosine distance vs. KB relevance), some KB search APIs return no score at all, and the three backends define relevance differently. Ranks are the only signal all of them reliably produce.
 
 **Switching a tenant's embedding model runs new and old vectors side by side**, then flips `embedding_model` in tenant config once every chunk is regenerated — searches keep serving from the old model until that moment, and rollback is one field. Delete the old rows afterward, then `REINDEX` before `VACUUM`. The trigger is manual and deliberately separate from changing the model setting, since a re-embed costs real money and time.

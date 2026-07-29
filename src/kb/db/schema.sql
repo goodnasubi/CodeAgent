@@ -33,6 +33,23 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 -- 行は「どの知識が宣言したつながりか」の向きで 1 本だけ持つ。両向きに
 -- 入れると、片方を同期し直したときにもう片方が宣言した辺まで巻き添えで
 -- 消えるため。探索側で両向きを見て無向グラフとして扱う。
+-- 知識 1 件ぶんの見出し情報。検索結果の表示に使う派生データ。
+--
+-- 検索のたびに KB へ問い合わせると N+1 になり、レート制限の厳しい
+-- バックエンド（Re:lation は 60 リクエスト/分）では破綻する。取り込み時に
+-- こちらへ写しておくことで、KB が落ちていても検索結果を出せる。
+CREATE TABLE IF NOT EXISTS knowledge_index (
+  tenant_id   UUID        NOT NULL,
+  kb_issue_id TEXT        NOT NULL,
+  title       TEXT        NOT NULL DEFAULT '',
+  url         TEXT,
+  labels      TEXT[]      NOT NULL DEFAULT '{}',
+  updated_at  TIMESTAMPTZ,
+  synced_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, kb_issue_id)
+);
+
+
 -- ラベル → 通知先の対応。テナント管理者が管理設定画面で定義する。
 -- これは派生データではなく設定なので、KB から作り直すことはできない。
 CREATE TABLE IF NOT EXISTS notification_rules (

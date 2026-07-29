@@ -33,6 +33,16 @@ class SearchHit:
     distance: float
 
 
+@dataclass(frozen=True)
+class KnowledgeMeta:
+    """検索結果の表示に使う見出し情報。"""
+
+    kb_issue_id: str
+    title: str
+    url: str | None
+    labels: tuple[str, ...] = ()
+
+
 def _vector_literal(values: list[float]) -> str:
     return "[" + ",".join(repr(float(v)) for v in values) + "]"
 
@@ -200,6 +210,51 @@ class ChunkRepository:
                 },
             )
             return [SearchHit(r[0], r[1], float(r[2])) for r in cur.fetchall()]
+
+    # ------------------------------------------------------------ metadata
+
+    def remember_knowledge(
+        self,
+        *,
+        tenant_id: UUID,
+        kb_issue_id: str,
+        title: str,
+        url: str | None,
+        labels: Sequence[str] = (),
+        updated_at: object | None = None,
+    ) -> None:
+        """検索結果の表示に使う見出し情報を控える。"""
+        self._conn.execute(
+            "INSERT INTO knowledge_index"
+            " (tenant_id, kb_issue_id, title, url, labels, updated_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s)"
+            " ON CONFLICT (tenant_id, kb_issue_id) DO UPDATE SET"
+            "   title = EXCLUDED.title, url = EXCLUDED.url,"
+            "   labels = EXCLUDED.labels, updated_at = EXCLUDED.updated_at,"
+            "   synced_at = now()",
+            (tenant_id, kb_issue_id, title, url, list(labels), updated_at),
+        )
+
+    def knowledge_meta(
+        self, *, tenant_id: UUID, kb_issue_ids: Sequence[str]
+    ) -> dict[str, KnowledgeMeta]:
+        if not kb_issue_ids:
+            return {}
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT kb_issue_id, title, url, labels FROM knowledge_index"
+                " WHERE tenant_id = %s AND kb_issue_id = ANY(%s)",
+                (tenant_id, list(kb_issue_ids)),
+            )
+            return {
+                row[0]: KnowledgeMeta(
+                    kb_issue_id=row[0],
+                    title=row[1],
+                    url=row[2],
+                    labels=tuple(row[3] or ()),
+                )
+                for row in cur.fetchall()
+            }
 
     # ---------------------------------------------------------------- edges
 

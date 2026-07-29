@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 from uuid import UUID
 
 from . import chunking
+from .backends.base import Knowledge, Relation
 from .db.repository import ChunkRepository, ChunkRow
 from .documents import ConvertedDocument, DocumentConverter
 from .embeddings import EmbeddingProvider
@@ -85,6 +87,40 @@ class IngestPipeline:
             model=self._embedder.model,
             dimensions=self._embedder.dimensions,
         )
+
+    def ingest_knowledge(
+        self,
+        *,
+        tenant_id: UUID,
+        knowledge: Knowledge,
+        relations: Sequence[Relation] = (),
+    ) -> IngestResult:
+        """KB から取得した知識を丸ごと取り込む。同期の入口。
+
+        本文だけでなくタイトル・コメント・添付の抽出結果までを 1 つの
+        テキストにまとめて embedding する（`combined_text`）。あわせて
+        検索結果の表示に使う見出し情報と、知識どうしのつながりも控える。
+        """
+        result = self.ingest_text(
+            tenant_id=tenant_id,
+            kb_issue_id=knowledge.id,
+            text=knowledge.combined_text(),
+            source_name=knowledge.title,
+        )
+        self._repo.remember_knowledge(
+            tenant_id=tenant_id,
+            kb_issue_id=knowledge.id,
+            title=knowledge.title,
+            url=knowledge.url or None,
+            labels=knowledge.labels,
+            updated_at=knowledge.updated_at,
+        )
+        self._repo.replace_relations(
+            tenant_id=tenant_id,
+            kb_issue_id=knowledge.id,
+            related=[(r.to_id, r.kind) for r in relations],
+        )
+        return result
 
     def ingest_file(
         self, *, tenant_id: UUID, kb_issue_id: str, path: str | Path
