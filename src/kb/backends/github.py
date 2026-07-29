@@ -26,6 +26,11 @@ def _parse_time(value: str | None) -> datetime | None:
 
 
 class GitHubKnowledgeBase:
+    """GitHub の Issue を知識として扱う。"""
+
+    supports_keyword_search = True
+    supports_relations = True
+
     def __init__(
         self,
         *,

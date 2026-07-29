@@ -44,6 +44,9 @@ class RedmineKnowledgeBase:
     付与は LabelFieldMissing を送出して設定漏れを気づけるようにする。
     """
 
+    supports_keyword_search = True
+    supports_relations = True
+
     def __init__(
         self,
         *,

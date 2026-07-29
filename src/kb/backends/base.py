@@ -75,14 +75,33 @@ class KnowledgeNotFound(KnowledgeBaseError):
     pass
 
 
+class UnsupportedOperation(KnowledgeBaseError):
+    """そのバックエンドに存在しない機能を呼んだ。
+
+    バックエンドによって出来ることが違う（Re:lation にはキーワード検索も
+    チケット間の関連も無い）。呼び出し側は `supports_*` を見て分岐し、
+    この例外は「見ずに呼んだ」ときの保険として使う。
+    """
+
+
 @runtime_checkable
 class KnowledgeBase(Protocol):
     """バックエンドが満たすべき操作。
 
     追記はコメントとして行う。本文を書き換える方式は、同時編集で他人の
-    記述を消す危険があり、また 3 バックエンドとも「コメント / 注記」を
+    記述を消す危険があり、また各バックエンドとも「コメント / 注記」を
     標準で持つため、こちらが移植性の面でも優れる。
+
+    **出来ることはバックエンドごとに違う。** 呼び出し側は下の `supports_*`
+    を見て、使えない検索を飛ばすこと。ハイブリッド検索は使える信号だけを
+    RRF でマージすればよい（順位しか使わないため、本数が減っても成立する）。
     """
+
+    supports_keyword_search: bool
+    """KB 側のキーワード検索が使えるか。Re:lation は API に無いため False。"""
+
+    supports_relations: bool
+    """知識どうしのつながりを取得できるか。Re:lation は API に無いため False。"""
 
     def create(
         self, *, title: str, body: str, labels: Sequence[str] = ()

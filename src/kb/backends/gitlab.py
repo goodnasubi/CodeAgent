@@ -38,6 +38,9 @@ class GitLabKnowledgeBase:
     目にする番号と揃えるため、知識の ID には **iid** を使う。
     """
 
+    supports_keyword_search = True
+    supports_relations = True
+
     def __init__(
         self,
         *,

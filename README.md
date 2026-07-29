@@ -8,7 +8,7 @@
 
 ## 現在の状態
 
-設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、類似度検索、つながり検索、GitHub / GitLab / Redmine 連携まで実装済み**です。
+設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、類似度検索、つながり検索、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
 
 未実装: 通知、UI、実 embedding プロバイダ、キーワード検索とのマージ処理の組み込み。
 
@@ -43,10 +43,11 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.embeddings` | embedding プロバイダの抽象 + 開発用のダミー実装 |
 | `kb.db.repository` | `knowledge_chunks` の読み書きと類似度検索 |
 | `kb.ingest` | 取り込みパイプライン |
-| `kb.backends` | 知識ベースの共通インターフェース（GitLab / GitHub / Redmine 用） |
+| `kb.backends` | 知識ベースの共通インターフェース（バックエンドごとの能力差を `supports_*` で表す） |
 | `kb.backends.github` | GitHub Issues 実装。実機に対する疎通テスト付き |
 | `kb.backends.gitlab` | GitLab Issues 実装。self-hosted / Free 版・旧バージョンでも動作 |
 | `kb.backends.redmine` | Redmine 実装。ラベルは複数選択カスタムフィールドで代用 |
+| `kb.backends.relation` | [Re:lation](https://developer.ingage.jp/) 実装。キーワード検索とつながりは API に無い |
 | `kb.ranking` | RRF による検索結果のマージ（類似度・キーワード・つながりの3本） |
 
 KB 連携の疎通テストを動かす場合は、使い捨てのリポジトリ／プロジェクトを用意して接続情報を渡します。
@@ -84,7 +85,7 @@ self-hosted GitLab を対象にする場合は `KB_GITLAB_API_BASE=https://gitla
 
 ### 知識の実体は外部KB側にある
 
-**GitLab / GitHub / Redmine が知識の正（source of truth）であり、pgvector は検索用インデックス**です。新規知識はKB側にIssue・チケットとして作成され、pgvector にはそこから作られた派生データが入ります。
+**外部の知識ベース（GitLab / GitHub / Redmine / Re:lation）が知識の正（source of truth）であり、pgvector は検索用インデックス**です。新規知識はKB側にIssue・チケットとして作成され、pgvector にはそこから作られた派生データが入ります。
 
 この前提から、pgvector は捨てて再構築できる（バックアップ不要）こと、KB API の障害時は新規登録が止まること、ラベルがKBネイティブ機能として使えることが導かれます。他の判断の多くがこれに依存しています。
 
@@ -92,7 +93,7 @@ self-hosted GitLab を対象にする場合は `KB_GITLAB_API_BASE=https://gitla
 
 | 項目 | 決定 |
 |---|---|
-| 知識ベース | テナントごとに1つ選択（GitLab / GitHub / Redmine の同時併用はしない） |
+| 知識ベース | テナントごとに1つ選択（GitLab / GitHub / Redmine / Re:lation の同時併用はしない） |
 | LLM / embedding | どちらもテナントごとに選択可能（GPT-5.x / Gemini / Claude API） |
 | 検索方式 | 類似度検索（pgvector）+ キーワード検索（KB API）+ 知識どうしのつながり のハイブリッド |
 | ベクトル索引 | HNSW。チャンクテーブルはテナントごとにパーティション分割 |
