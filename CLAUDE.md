@@ -104,6 +104,13 @@ Default expansion is one hop; more pulls in weakly related knowledge. Damp the s
 
 **Notifications**: label-applied-to-knowledge triggers delivery in-app, to Slack, and by email. Destination resolution is a label→destination mapping configured per tenant in admin settings — not KB assignees/watchers, since the auth model provides no KB-user-to-account linkage.
 
+Detecting "a label was applied" needs the previous labels, so `knowledge_label_state` stores what each sync last saw. Two behaviours there are deliberate and load-bearing:
+
+- **A knowledge with no prior state notifies nothing.** `None` (never synced) and `()` (synced, no labels) are distinct — collapsing them would fire a notification for every pre-existing label the first time a tenant is onboarded.
+- **State advances even when delivery fails.** Otherwise the 10-minute poll retries the same failed notification forever. Failures land in `DispatchResult.failed` for the caller; one broken channel never blocks the others.
+
+`notification_rules` / `knowledge_label_state` / `app_notifications` are plain tables, not partitioned. Partitioning exists for the ANN filtering problem in `knowledge_chunks`; ordinary B-tree lookups don't have it.
+
 **Auth is deliberately minimal**: no custom auth mechanism; operation proceeds on admin-issued account identifiers, extensible later to password auth or corporate IdP (SAML/OIDC). ⚠️ **This assumes closed internal deployment.** If the system is ever exposed to the internet, this assumption breaks and real authentication becomes a prerequisite, not an enhancement.
 
 **Browser storage**: localStorage holds account/session identity and a conversation-history *cache* only. The DB is authoritative for history so chats resume across devices. Credentials never reach the browser.

@@ -8,9 +8,9 @@
 
 ## 現在の状態
 
-設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、類似度検索、つながり検索、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
+設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、類似度検索、つながり検索、通知、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
 
-未実装: 通知、UI、実 embedding プロバイダ、キーワード検索とのマージ処理の組み込み。
+未実装: UI、実 embedding プロバイダ、キーワード検索とのマージ処理の組み込み。
 
 ## 開発
 
@@ -49,6 +49,8 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.backends.redmine` | Redmine 実装。ラベルは複数選択カスタムフィールドで代用 |
 | `kb.backends.relation` | [Re:lation](https://developer.ingage.jp/) 実装。キーワード検索とつながりは API に無い |
 | `kb.ranking` | RRF による検索結果のマージ（類似度・キーワード・つながりの3本） |
+| `kb.notifications` | ラベル付与を起点とした通知（アプリ内 / Slack / メール） |
+| `kb.db.notifications` | 通知の設定・ラベル状態・アプリ内受信箱 |
 
 KB 連携の疎通テストを動かす場合は、使い捨てのリポジトリ／プロジェクトを用意して接続情報を渡します。
 
