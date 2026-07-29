@@ -106,6 +106,7 @@ class HybridSearch:
 
         lists: dict[str, list[str]] = {}
         skipped: dict[str, str] = {}
+        fallback_titles: dict[str, tuple[str, str | None]] = {}
 
         # ---- 類似度検索（常に使える。pgvector 側で完結するため KB 障害に強い）
         hits = self._repo.search(
@@ -134,6 +135,12 @@ class HybridSearch:
             else:
                 if found:
                     lists[SIGNAL_KEYWORD] = [k.id for k in found]
+                    # まだ取り込んでいない知識がキーワード検索で出ることがある
+                    # （取り込みの前に KB 側で作られた場合など）。表示が空欄に
+                    # ならないよう、KB が返した題名を控えとして持っておく。
+                    fallback_titles = {
+                        k.id: (k.title, k.url or None) for k in found
+                    }
 
         # ---- つながりの展開（上位ヒットから 1 ホップ）
         seeds = list(dict.fromkeys(vector_ids + lists.get(SIGNAL_KEYWORD, [])))
@@ -163,11 +170,12 @@ class HybridSearch:
         results = []
         for hit in fused:
             info = meta.get(hit.kb_issue_id)
+            spare = fallback_titles.get(hit.kb_issue_id, ("", None))
             results.append(
                 SearchResult(
                     kb_issue_id=hit.kb_issue_id,
-                    title=info.title if info else "",
-                    url=info.url if info else None,
+                    title=(info.title if info else "") or spare[0],
+                    url=(info.url if info else None) or spare[1],
                     score=hit.score,
                     sources=hit.sources,
                     labels=info.labels if info else (),

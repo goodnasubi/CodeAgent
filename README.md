@@ -8,9 +8,9 @@
 
 ## 現在の状態
 
-設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、ハイブリッド検索（類似度・キーワード・つながりの3信号）、通知、差分取り込み、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
+設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、ハイブリッド検索（類似度・キーワード・つながりの3信号）、通知、差分取り込み、HTTP API、4画面の UI、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
 
-未実装: UI、実 embedding プロバイダ、cron の常駐プロセス（同期処理自体は実装済みで、定期実行の仕組みが未着手）。
+未実装: 実 embedding プロバイダ（API キー待ち）、cron の常駐プロセス（同期処理自体は実装済みで、定期実行の仕組みが未着手）。
 
 ## 開発
 
@@ -51,6 +51,10 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.ranking` | RRF による検索結果のマージ（順位のみを使う） |
 | `kb.search` | ハイブリッド検索。3つの信号を束ね、使えない信号は自動で飛ばす |
 | `kb.sync` | KB からの取り込み（cron ポーリング）。取り込み → 通知まで |
+| `kb.tenants` | テナント設定。KB のトークンは暗号化して保存する |
+| `kb.factory` | テナント設定から実際に使うアダプタを組み立てる |
+| `kb.api` | HTTP API（FastAPI） |
+| `web/` | 画面（TypeScript + React） |
 | `kb.notifications` | ラベル付与を起点とした通知（アプリ内 / Slack / メール） |
 | `kb.db.notifications` | 通知の設定・ラベル状態・アプリ内受信箱 |
 
@@ -67,6 +71,22 @@ KB_GITLAB_TEST_PROJECT=group/project KB_GITLAB_TOKEN=xxxxx uv run python -m pyte
 ```bash
 KB_REDMINE_URL=http://localhost:3000 KB_REDMINE_API_KEY=xxxxx KB_REDMINE_PROJECT=kb-adapter-test uv run python -m pytest
 ```
+
+### 動かす
+
+API サーバー（`KB_SECRET_KEY` は KB のトークン暗号化に使う鍵。未設定だと起動時に落ちる）:
+
+```bash
+KB_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_SECRET_KEY="$(uv run python -c 'from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())')" uv run uvicorn kb.api:app --port 8000
+```
+
+画面（`/api` は自動で API サーバーへ転送されます）:
+
+```bash
+cd web && npm install && npm run dev
+```
+
+最初は開発者向け画面でテナントとアカウントを払い出し、管理設定画面で知識ベースを設定してください。
 
 self-hosted GitLab を対象にする場合は `KB_GITLAB_API_BASE=https://gitlab.example.co.jp/api/v4` も指定します。Redmine の立て方は [verify/README.md](verify/README.md) にあります。
 

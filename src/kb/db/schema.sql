@@ -33,6 +33,80 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 -- 行は「どの知識が宣言したつながりか」の向きで 1 本だけ持つ。両向きに
 -- 入れると、片方を同期し直したときにもう片方が宣言した辺まで巻き添えで
 -- 消えるため。探索側で両向きを見て無向グラフとして扱う。
+-- テナント。管理者が払い出す。利用者は自分で作れない。
+CREATE TABLE IF NOT EXISTS tenants (
+  id         UUID        PRIMARY KEY,
+  name       TEXT        NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+-- 知識ベースへの接続情報。テナント本体とは分けて持つ。
+--
+-- トークンのローテーション・有効/無効・接続テストの結果といった、接続固有の
+-- 状態が後から生えてくる。またテナント本体は認可チェックで頻繁に読むのに対し
+-- トークンは KB を呼ぶときにしか要らないので、分けておくと不用意に
+-- SELECT しない実装がしやすい。
+CREATE TABLE IF NOT EXISTS tenant_kb_connections (
+  tenant_id       UUID        PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  kb_type         TEXT        NOT NULL,  -- github / gitlab / redmine / relation
+  base_url        TEXT,                  -- self-hosted 用。省略時は各既定値
+  project         TEXT        NOT NULL,  -- owner/repo, group/project, 識別子など
+  encrypted_token BYTEA       NOT NULL,  -- アプリ側で暗号化してから保存する
+  extra           JSONB       NOT NULL DEFAULT '{}',  -- message_box_id など
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+-- LLM / embedding の選択。どちらもテナントごとに選べる。
+CREATE TABLE IF NOT EXISTS tenant_model_settings (
+  tenant_id          UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  llm_provider       TEXT NOT NULL DEFAULT 'claude',
+  llm_model          TEXT NOT NULL DEFAULT '',
+  embedding_provider TEXT NOT NULL DEFAULT 'hashing',
+  embedding_model    TEXT NOT NULL DEFAULT 'hashing-dev',
+  embedding_dim      INT  NOT NULL DEFAULT 768,
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+-- アカウント。管理者が払い出す識別子で運用する（独自認証は持たない）。
+CREATE TABLE IF NOT EXISTS accounts (
+  id           UUID        PRIMARY KEY,
+  tenant_id    UUID        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  display_name TEXT        NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_tenant ON accounts (tenant_id);
+
+
+-- 会話履歴。**DB が正**で、localStorage はキャッシュ。
+-- 端末を跨いでも同じ会話を続けられるようにするため。
+CREATE TABLE IF NOT EXISTS conversations (
+  id         UUID        PRIMARY KEY,
+  tenant_id  UUID        NOT NULL,
+  account_id UUID        NOT NULL,
+  title      TEXT        NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_account
+  ON conversations (tenant_id, account_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS conversation_messages (
+  id              BIGSERIAL PRIMARY KEY,
+  conversation_id UUID        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role            TEXT        NOT NULL,  -- user / assistant
+  content         TEXT        NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_messages
+  ON conversation_messages (conversation_id, created_at);
+
+
 -- ポーリングの進捗。どこまで取り込んだかを覚えておく。
 CREATE TABLE IF NOT EXISTS sync_state (
   tenant_id      UUID        PRIMARY KEY,

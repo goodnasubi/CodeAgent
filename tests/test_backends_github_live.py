@@ -157,3 +157,24 @@ def test_relations_from_a_comment_are_found(github, issue):
             return
         time.sleep(3)
     pytest.fail("コメントからの参照が取れない")
+
+
+def test_initial_sync_start_point_actually_returns_issues(github, issue):
+    """初回取り込みの起点が実際に使えること。
+
+    GitHub は Unix エポック（1970-01-01）を渡すとエラーも出さずに 0 件を返す。
+    そこを起点にすると、新規テナントの初回取り込みが黙って空になる。
+    """
+    from datetime import datetime, timezone
+
+    from kb.sync import INITIAL_SINCE
+
+    issue(f"[test {uuid.uuid4().hex[:8]}] 初回取り込みの確認", "本文")
+
+    assert list(github.updated_since(INITIAL_SINCE)), (
+        f"INITIAL_SINCE={INITIAL_SINCE} では何も返らない。"
+        "新規テナントの初回取り込みが空になる"
+    )
+    # 参考: エポックは実際に 0 件になる（この挙動が変わったら定数を見直せる）
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    assert not list(github.updated_since(epoch))

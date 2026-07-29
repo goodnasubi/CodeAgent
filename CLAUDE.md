@@ -104,6 +104,12 @@ Search results are enriched from `knowledge_index`, a per-knowledge metadata tab
 
 `candidates_per_signal` (how many each signal contributes) is deliberately separate from `limit` (how many come back), and small values are **not** silently clamped up to `limit`.
 
+**The API and the UI.** `kb.api` (FastAPI) is the only thing the browser talks to; `web/` is the React app, proxying `/api` in dev. Two rules the API enforces and must keep enforcing: **the KB token is never in a response** (`GET /kb` returns the connection without it), and `KB_SECRET_KEY` must be set or startup fails — a missing key that only surfaces when someone saves a token is worse than one that stops the process.
+
+`GET /kb` also reports `supports_keyword_search` / `supports_relations` so the settings screen can tell the operator which searches their backend cannot do, rather than leaving them wondering why results look thin.
+
+Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption). The dev frontend needs `npm install` in `web/`; **Ubuntu 20.04's glibc 2.31 is too old for rollup's native binary**, so `package.json` overrides `rollup` to `@rollup/wasm-node`. Don't remove that override without checking the platform.
+
 `SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
 
 - **The checkpoint timestamp is captured before fetching, not after.** Using the finish time would drop anything edited while the fetch was running.

@@ -25,7 +25,16 @@ from .notifications import NotificationDispatcher
 logger = logging.getLogger(__name__)
 
 # 初回取り込みの起点。KB にある既存の知識をすべて対象にする。
-EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+#
+# **Unix エポック（1970-01-01）は使えない。** GitHub はその日時を渡すと
+# エラーも出さずに 0 件を返す（タイムスタンプ 0 を「未指定」として扱って
+# いるとみられる。1990 年以降なら正常に返る）。新規テナントの初回取り込みが
+# 黙って空になる不具合になるため、十分に過去かつ実在する日付を使う。
+# 2000 年は GitHub(2008)・GitLab(2011)・Redmine(2006) のいずれの誕生より前。
+INITIAL_SINCE = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+# 旧名。既存の呼び出しのために残す。
+EPOCH = INITIAL_SINCE
 
 
 @dataclass
@@ -61,14 +70,14 @@ class SyncRunner:
     def sync(self, *, tenant_id: UUID, since: datetime | None = None) -> SyncReport:
         """更新分を取り込む。
 
-        取得の起点は、明示指定 > 前回の到達点 > EPOCH（初回は全件）の順。
+        取得の起点は、明示指定 > 前回の到達点 > INITIAL_SINCE（初回は全件）の順。
 
         **時刻は取得を始める前に確定させる。** 取得中に更新された知識は
         次回に回るが、取り終えた時刻を使うとその分を取りこぼす。
         """
         started_at = datetime.now(timezone.utc)
         state = self._state.get(tenant_id=tenant_id)
-        start_from = since or (state.last_synced_at if state else None) or EPOCH
+        start_from = since or (state.last_synced_at if state else None) or INITIAL_SINCE
         report = SyncReport(tenant_id=tenant_id, since=start_from)
 
         try:
