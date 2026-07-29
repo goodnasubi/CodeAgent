@@ -82,12 +82,12 @@ KB_REDMINE_URL=http://localhost:3000 KB_REDMINE_API_KEY=<出力されたキー> 
 
 ## 開発環境について
 
-この環境（WSL2 / Ubuntu 20.04）では、実装に必要なものが標準では揃いません。
+この環境（WSL2 / Ubuntu 24.04）では、実装に必要なものが標準では揃いません。
 
 | 項目 | 標準状態 | 対応 |
 |---|---|---|
-| Python | 3.8.10（markitdown は 3.10+ が必要） | `uv` で 3.12 を導入 |
-| pip | 無し | `uv` が代替 |
+| Python | 3.12.3（markitdown の要件 3.10+ は満たす） | `uv` でバージョンを固定 |
+| pip | 無し。システム Python は PEP 668 で外部管理扱い | `uv` が代替 |
 | sudo | パスワードが必要で非対話実行が不可 | `~/.local/bin` へのユーザーインストールで回避 |
 | PostgreSQL | 無し | Docker Desktop（WSL統合を有効化） |
 

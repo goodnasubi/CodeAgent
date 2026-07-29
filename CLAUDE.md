@@ -22,7 +22,7 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_GITHUB_
 
 `uv.lock` is committed, so `uv sync --extra dev` reproduces exact versions. Keep it that way — this is an application, not a distributed library, and unpinned transitive deps are how "works on my machine" starts.
 
-The environment does not come ready: Ubuntu 20.04 ships Python 3.8 (markitdown needs 3.10+), has no `pip`, and `sudo` prompts for a password so it cannot be scripted. `uv` at `~/.local/bin` supplies both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Setup notes and the standalone design check live in [verify/README.md](verify/README.md).
+The environment does not come ready: Ubuntu 24.04 has no `pip`, marks its system Python as PEP 668 externally-managed, and `sudo` prompts for a password so it cannot be scripted. `uv` at `~/.local/bin` supplies both Python 3.12 and package management without any of that. Postgres runs through Docker Desktop's WSL integration. Setup notes and the standalone design check live in [verify/README.md](verify/README.md).
 
 **Backends differ in what they can do, so `KnowledgeBase` carries `supports_keyword_search` / `supports_relations`.** Callers branch on those flags and merge whatever ranked lists they actually get — RRF works on ranks, so fewer signals still produce a valid ranking. Re:lation is the reason this exists: it is a shared support inbox, not an issue tracker, and its API has **neither keyword search (documented as 「キーワード検索はできません」) nor any ticket-to-ticket linking**. Similarity search still works because that runs entirely on our pgvector side, so Re:lation remains a usable knowledge base on one signal instead of three. `search()` there raises `UnsupportedOperation` rather than returning `[]`, so a caller that ignores the flag cannot mistake "unsupported" for "no hits"; `relations()` returns `[]` because having no links is a legitimate state.
 
@@ -122,7 +122,7 @@ Three constraints that shape it:
 
 File upload needs `python-multipart`. On the frontend, `request()` must *not* set `Content-Type` for `FormData` — writing it by hand drops the multipart boundary and the server cannot parse the body.
 
-Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption). The dev frontend needs `npm install` in `web/`; **Ubuntu 20.04's glibc 2.31 is too old for rollup's native binary**, so `package.json` overrides `rollup` to `@rollup/wasm-node`. Don't remove that override without checking the platform.
+Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption). The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
 
 `SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
 
