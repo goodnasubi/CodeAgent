@@ -50,6 +50,24 @@ DEFAULT_DIMENSIONS = 1536
 #: 1 リクエストにまとめる件数。
 DEFAULT_BATCH_SIZE = 100
 
+#: 足切りの距離。**開発用ハッシュ実装の 0.85 とは別物**で、流用してはいけない。
+#:
+#: gemini-embedding-001 / 1,536 次元で、短い問い合わせ文 → 知識本文という
+#: 実際の検索の形で測った分布（社内問い合わせ 6 件 × クエリ 14 本）:
+#:
+#:     正解ペア        min 0.224  p50 0.296  max 0.372
+#:     不正解ペア      min 0.330  p50 0.465  max 0.525
+#:     該当なしクエリ  min 0.401  p50 0.502  max 0.547
+#:
+#: 0.40 は「正解を 1 つも取りこぼさない上限」と「どの知識にも当てはまらない
+#: クエリが 1 つも通らない下限」の間に収まる唯一の帯。0.45 まで緩めると
+#: 該当なしのクエリが結果を返し始め、**新規登録の導線が消える**。0.35 まで
+#: 締めると正解を取りこぼし始める。
+#:
+#: 不正解ペアが 0.40 で 4/55 通るのは許容している。正解より下位に並ぶだけで、
+#: 順位は RRF が決めるため。守りたいのは「該当なしが空で返ること」の方。
+DEFAULT_MAX_DISTANCE = 0.40
+
 #: インライン画像として送れる上限。リクエスト全体で 20MB という制限があり、
 #: base64 で 4/3 に膨らむぶんを見込んで余裕を取る。
 MAX_INLINE_IMAGE_BYTES = 14 * 1024 * 1024
@@ -163,6 +181,7 @@ class GeminiEmbeddingProvider(_GeminiApi):
         model: str = DEFAULT_EMBEDDING_MODEL,
         dimensions: int = DEFAULT_DIMENSIONS,
         batch_size: int = DEFAULT_BATCH_SIZE,
+        max_distance: float = DEFAULT_MAX_DISTANCE,
         api_base: str = _API,
         client: httpx.Client | None = None,
         timeout: float = 30.0,
@@ -186,6 +205,7 @@ class GeminiEmbeddingProvider(_GeminiApi):
         self._model = model
         self._dimensions = dimensions
         self._batch_size = batch_size
+        self._max_distance = max_distance
 
     @property
     def model(self) -> str:
@@ -194,6 +214,10 @@ class GeminiEmbeddingProvider(_GeminiApi):
     @property
     def dimensions(self) -> int:
         return self._dimensions
+
+    @property
+    def max_distance(self) -> float:
+        return self._max_distance
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """入力と同じ順序・同じ長さで返す。

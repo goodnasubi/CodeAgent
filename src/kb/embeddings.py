@@ -23,6 +23,20 @@ class EmbeddingProvider(Protocol):
     def dimensions(self) -> int:
         """出力ベクトルの次元数。"""
 
+    @property
+    def max_distance(self) -> float:
+        """これより遠い知識は「関連なし」として捨てる距離（コサイン距離）。
+
+        **モデルごとに違う値であり、共通の定数には置けない。** 距離の分布は
+        モデルの性質そのもので、あるモデルで「無関係」を意味する 0.85 が、
+        別のモデルでは「まったく届かない値」になる。ベクトルを作った当人が
+        自分の値を申告する形にしてあるのはそのため。
+
+        足切りが無いと、どんな質問にも必ず何かが返る。無関係な結果が並ぶ
+        だけでなく、**「見つからなかったので新しく登録する」という筋道に
+        永久に到達できなくなる**。
+        """
+
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """テキスト列をベクトル化する。入力と同じ順序・同じ長さで返す。"""
 
@@ -48,11 +62,23 @@ class HashingEmbeddingProvider:
     検証する E2E テストが書ける。意味的な類似（言い換え）は捉えない。
     """
 
-    def __init__(self, *, dimensions: int = 768, model: str = "hashing-dev") -> None:
+    #: このハッシュ実装での実測は、関連ありが 0.46〜0.65、無関係が 0.88〜1.00。
+    #: **この値を実プロバイダに流用しないこと。** 単語の重なりだけを見ている
+    #: ため距離が全体的に大きく、意味で近い実モデルとは分布がまるで違う。
+    DEFAULT_MAX_DISTANCE = 0.85
+
+    def __init__(
+        self,
+        *,
+        dimensions: int = 768,
+        model: str = "hashing-dev",
+        max_distance: float = DEFAULT_MAX_DISTANCE,
+    ) -> None:
         if dimensions <= 0:
             raise ValueError("dimensions must be positive")
         self._dimensions = dimensions
         self._model = model
+        self._max_distance = max_distance
 
     @property
     def model(self) -> str:
@@ -61,6 +87,10 @@ class HashingEmbeddingProvider:
     @property
     def dimensions(self) -> int:
         return self._dimensions
+
+    @property
+    def max_distance(self) -> float:
+        return self._max_distance
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [self._embed_one(t) for t in texts]

@@ -17,11 +17,25 @@ from typing import Mapping
 from uuid import UUID
 
 from .backends.base import KnowledgeBase, KnowledgeBaseError
-from .db.repository import DEFAULT_MAX_DISTANCE, ChunkRepository
+from .db.repository import ChunkRepository
 from .embeddings import EmbeddingProvider
 from .ranking import DEFAULT_K, rank_by_hops, reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
+
+
+class _ProviderDefault:
+    """「足切りの距離は provider に訊く」を表す番人。
+
+    None は「足切りしない」という別の意味に既に使われているため、省略と
+    区別できる第三の値が要る。
+    """
+
+    def __repr__(self) -> str:  # pragma: no cover - デバッグ表示のみ
+        return "<provider default>"
+
+
+PROVIDER_DEFAULT = _ProviderDefault()
 
 SIGNAL_VECTOR = "vector"
 SIGNAL_KEYWORD = "keyword"
@@ -72,15 +86,25 @@ class HybridSearch:
         k: int = DEFAULT_K,
         weights: Mapping[str, float] | None = None,
         hops: int = 1,
-        max_distance: float | None = DEFAULT_MAX_DISTANCE,
+        max_distance: float | None | _ProviderDefault = PROVIDER_DEFAULT,
     ) -> None:
+        """
+        Args:
+            max_distance: 足切りの距離。既定では **embedder が申告する値**を
+                使う（モデルごとに適正値が違い、共通の定数を置けないため）。
+                数値を渡せばそれで上書きし、None を渡すと足切りしない。
+        """
         self._repo = repository
         self._embedder = embedder
         self._backend = backend
         self._k = k
         self._weights = dict(DEFAULT_WEIGHTS if weights is None else weights)
         self._hops = hops
-        self._max_distance = max_distance
+        self._max_distance: float | None = (
+            embedder.max_distance
+            if isinstance(max_distance, _ProviderDefault)
+            else max_distance
+        )
 
     def search(
         self,
