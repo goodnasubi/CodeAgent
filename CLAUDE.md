@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync and the resident scheduler that drives it, the HTTP API, and all four backend adapters. `web/` holds the React UI. **The only thing still missing is real LLM and embedding providers** (no API keys here — this also blocks image OCR).
+Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync and the resident scheduler that drives it, the HTTP API, and all four backend adapters. `web/` holds the React UI. Gemini is wired up for both embedding and image OCR (`kb.providers.gemini`); Claude and OpenAI are still selectable in the UI but unimplemented.
 
 ```bash
 uv run python -m pytest
@@ -43,7 +43,19 @@ Also GitLab-specific: notes include **system notes** ("added ~bug label"). Filte
 
 Two GitHub-specific traps, both confirmed against the live API: its issues endpoint **also returns pull requests** (filter on the `pull_request` key or PRs enter the knowledge base), and newly created issues take a few seconds to appear in the list endpoint. The latter is harmless in production — we embed our own writes immediately, and polling only catches external edits — but it will flake any test that lists right after creating.
 
-No API keys exist here, so `HashingEmbeddingProvider` stands in for real providers. It is a bag-of-words hash, deliberately not a stub returning noise: texts sharing vocabulary land close together, which is what lets the end-to-end "find the similar document" test mean anything without a key. It does not model paraphrase, so never use it to judge retrieval quality.
+`HashingEmbeddingProvider` remains the default so the suite runs without a key. It is a bag-of-words hash, deliberately not a stub returning noise: texts sharing vocabulary land close together, which is what lets the end-to-end "find the similar document" test mean anything without a key. It does not model paraphrase, so never use it to judge retrieval quality.
+
+**Gemini is the one real provider implemented** (`kb.providers.gemini`, Google AI Studio API keys against `generativelanguage.googleapis.com` — not Vertex, so no GCP project or service account). It is `httpx` rather than the `google-genai` SDK, matching the four backend adapters: two endpoints do not justify a dependency. Per-tenant API keys live encrypted in `tenant_model_settings`, alongside the model selection.
+
+Three things it enforces that would otherwise fail late:
+
+- **Output dimensions are capped at 2,000**, not the API's 3,072, because pgvector cannot build an HNSW index above that. Rejecting at construction beats discovering it when index creation fails after ingest. Default is 1,536.
+- Vectors are always L2-normalized. Gemini normalizes at the default dimension but not always at reduced ones, and search is cosine distance.
+- Empty strings never reach the API (they error and cost money); they get a deterministic unit vector, since a zero vector has no defined cosine distance.
+
+**A model appearing in `ListModels` does not mean your key can call it.** `gemini-2.5-flash` is still listed but returns 404 "no longer available to new users" on `generateContent` for keys issued now — which is exactly what `tests/test_providers_gemini_live.py` exists to catch, since it deliberately exercises the *default* model names. Change a default, run the live test.
+
+Measured with `gemini-embedding-001` at 1,536 dimensions: a vocabulary-free paraphrase sits at cosine distance **0.341**, unrelated text at **0.520**. So the `max_distance` default of 0.85 does nothing here — see the tuning table below.
 
 ## What's here
 
@@ -118,11 +130,11 @@ Three constraints that shape it:
 
 - **`file://` URLs read arbitrary server files** — markitdown will happily return `/etc/hostname`. `DocumentConverter.convert_url` allows only `http`/`https` (`ALLOWED_URL_SCHEMES`), and that check belongs on the converter, not the endpoint, so every caller inherits it.
 - Extracted text is cut at `MAX_EXTRACTED_CHARS` (60,000) with a `truncated` flag, because **GitHub rejects issue bodies over 65,536 characters** — silently handing back text that cannot be registered is worse than saying it was shortened. Uploads cap at `MAX_SOURCE_BYTES` (20MB).
-- **Image OCR does not work yet.** The design delegates it to the tenant's LLM, and no LLM client exists (same blocker as real embeddings), so `DocumentConverter()` is built without one and images come back with no text. The UI says so instead of failing silently.
+- **Image OCR runs through the tenant's LLM, so it works only where one is configured.** `DocumentConverter(llm=...)` takes the client from `llm_for_tenant`; with no key configured the argument is `None` and images come back with no text, which the UI says rather than failing silently (hence `has_llm_api_key` on the extract response). markitdown's own `llm_client` hook is deliberately unused — it calls OpenAI-shaped `chat.completions.create`, and its default prompt asks for a *description* of the image, which is the wrong job.
 
 File upload needs `python-multipart`. On the frontend, `request()` must *not* set `Content-Type` for `FormData` — writing it by hand drops the multipart boundary and the server cannot parse the body.
 
-Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption), `KB_SYNC_INTERVAL_SECONDS` (scheduler interval, default 600), `KB_SMTP_HOST`/`KB_SMTP_PORT`/`KB_SMTP_SENDER` (optional, enables the email notifier). A malformed interval raises at startup rather than falling back to the default — silently ignoring the config is how a "why isn't it polling every 2 minutes" hunt starts. The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
+Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption), `KB_SYNC_INTERVAL_SECONDS` (scheduler interval, default 600), `KB_SMTP_HOST`/`KB_SMTP_PORT`/`KB_SMTP_SENDER` (optional, enables the email notifier), `KB_GEMINI_API_KEY` (only for the live provider test — the app itself reads per-tenant keys from the DB). `.env.example` is the template; `.env` is gitignored and nothing loads it automatically, so `set -a; . ./.env; set +a` before commands that need it. A malformed interval raises at startup rather than falling back to the default — silently ignoring the config is how a "why isn't it polling every 2 minutes" hunt starts. The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
 
 `SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
 
@@ -169,7 +181,7 @@ Every design question is settled. What remains is numeric tuning against real da
 | cron polling interval | 10 min | how often people actually edit in the KB directly |
 | RRF constant `k` | 60 | whether similarity or keyword results should dominate |
 | `hnsw.ef_search` | 40 (default) | recall vs. latency |
-| `max_distance` | 0.85 | irrelevant hits leaking in, or relevant ones being cut |
+| `max_distance` | 0.85 | **model-specific — 0.85 is a `HashingEmbeddingProvider` value.** `gemini-embedding-001` puts unrelated text at 0.52, so the cutoff never fires and "nothing found, register it" stays unreachable. Needs to become per-provider rather than one constant |
 
 ## Regenerating the overview PNG
 

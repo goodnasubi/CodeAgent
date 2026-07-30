@@ -12,8 +12,9 @@ from typing import Any, Iterator
 from uuid import UUID
 
 import psycopg
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .backends.base import KnowledgeBaseError
@@ -30,14 +31,23 @@ from .documents import (
 from .factory import (
     KB_TYPES,
     BackendNotConfigured,
+    ProviderNotConfigured,
     backend_for_tenant,
-    build_embedder,
     build_sync_runner,
+    embedder_for_tenant,
+    llm_for_tenant,
 )
 from .ingest import IngestPipeline
 from .search import HybridSearch
 from .sync import interval_from_env
-from .tenants import KbConnection, ModelSettings, TenantRepository, load_cipher
+from .tenants import (
+    KIND_EMBEDDING,
+    KIND_LLM,
+    KbConnection,
+    ModelSettings,
+    TenantRepository,
+    load_cipher,
+)
 
 DSN_ENV = "KB_DSN"
 
@@ -111,6 +121,22 @@ class ModelSettingsIn(BaseModel):
     embedding_provider: str = "hashing"
     embedding_model: str = "hashing-dev"
     embedding_dim: int = 768
+    # 省略時は保存済みの鍵をそのまま残す。プロバイダ名だけ直したいときに
+    # 空文字で上書きして消してしまわないよう、None と "" を区別する。
+    llm_api_key: str | None = None
+    embedding_api_key: str | None = None
+
+
+class ModelSettingsOut(BaseModel):
+    """API キーは決して返さない。設定済みかどうかだけ伝える。"""
+
+    llm_provider: str
+    llm_model: str
+    embedding_provider: str
+    embedding_model: str
+    embedding_dim: int
+    has_llm_api_key: bool = False
+    has_embedding_api_key: bool = False
 
 
 class SearchIn(BaseModel):
@@ -216,6 +242,11 @@ def create_app() -> FastAPI:
 
     def tenants_repo(conn: psycopg.Connection = Depends(get_conn)) -> TenantRepository:
         return TenantRepository(conn, cipher=load_cipher())
+
+    @app.exception_handler(ProviderNotConfigured)
+    def _provider_not_configured(request: Request, exc: ProviderNotConfigured):
+        # 設定漏れであってサーバーの障害ではないので 500 にしない
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     # ------------------------------------------------------------ 開発者向け
 
@@ -325,10 +356,16 @@ def create_app() -> FastAPI:
         )
         return {"ok": True}
 
-    @app.get("/api/tenants/{tenant_id}/models", response_model=ModelSettingsIn,
+    @app.get("/api/tenants/{tenant_id}/models", response_model=ModelSettingsOut,
              tags=["settings"])
     def get_models(tenant_id: UUID, repo: TenantRepository = Depends(tenants_repo)):
-        return ModelSettingsIn(**repo.get_model_settings(tenant_id).__dict__)
+        return ModelSettingsOut(
+            **repo.get_model_settings(tenant_id).__dict__,
+            has_llm_api_key=repo.get_model_api_key(tenant_id, KIND_LLM) is not None,
+            has_embedding_api_key=(
+                repo.get_model_api_key(tenant_id, KIND_EMBEDDING) is not None
+            ),
+        )
 
     @app.put("/api/tenants/{tenant_id}/models", tags=["settings"])
     def set_models(
@@ -336,7 +373,14 @@ def create_app() -> FastAPI:
         body: ModelSettingsIn,
         repo: TenantRepository = Depends(tenants_repo),
     ):
-        repo.set_model_settings(tenant_id=tenant_id, settings=ModelSettings(**body.model_dump()))
+        settings = body.model_dump(exclude={"llm_api_key", "embedding_api_key"})
+        repo.set_model_settings(tenant_id=tenant_id, settings=ModelSettings(**settings))
+        for kind, key in (
+            (KIND_LLM, body.llm_api_key),
+            (KIND_EMBEDDING, body.embedding_api_key),
+        ):
+            if key is not None:
+                repo.set_model_api_key(tenant_id=tenant_id, kind=kind, api_key=key)
         return {"ok": True}
 
     @app.get("/api/tenants/{tenant_id}/accounts", response_model=list[AccountOut],
@@ -348,7 +392,11 @@ def create_app() -> FastAPI:
 
     @app.post("/api/tenants/{tenant_id}/extract/file", response_model=ExtractedOut,
               tags=["documents"])
-    async def extract_file(tenant_id: UUID, file: UploadFile = File(...)):
+    async def extract_file(
+        tenant_id: UUID,
+        file: UploadFile = File(...),
+        conn: psycopg.Connection = Depends(get_conn),
+    ):
         """アップロードされたファイルを本文テキストにして返す。
 
         ここでは KB にも DB にも書かない。取り出した本文で**まず検索し**、
@@ -356,18 +404,25 @@ def create_app() -> FastAPI:
         """
         data = await file.read()
         return _extract(
-            lambda c: c.convert_bytes(data, filename=file.filename or "upload")
+            tenant_id,
+            conn,
+            lambda c: c.convert_bytes(data, filename=file.filename or "upload"),
         )
 
     @app.post("/api/tenants/{tenant_id}/extract/url", response_model=ExtractedOut,
               tags=["documents"])
-    def extract_url(tenant_id: UUID, body: UrlIn):
-        return _extract(lambda c: c.convert_url(body.url))
+    def extract_url(
+        tenant_id: UUID, body: UrlIn, conn: psycopg.Connection = Depends(get_conn)
+    ):
+        return _extract(tenant_id, conn, lambda c: c.convert_url(body.url))
 
-    def _extract(run: Any) -> ExtractedOut:
-        # 画像の OCR はテナントが選んだ LLM に委譲する設計だが、その LLM
-        # クライアントがまだ無いので今は渡していない（実プロバイダ待ち）。
-        converter = DocumentConverter()
+    def _extract(tenant_id: UUID, conn: psycopg.Connection, run: Any) -> ExtractedOut:
+        # 画像の文字起こしはテナントが選んだ LLM に委譲する。未設定なら
+        # None が返り、画像は文字なしとして扱われる（他の形式は影響を受けない）。
+        repo = TenantRepository(conn, cipher=load_cipher())
+        converter = DocumentConverter(
+            llm=llm_for_tenant(tenants=repo, tenant_id=tenant_id)
+        )
         try:
             converted: ConvertedDocument = run(converter)
         except UnsupportedSource as exc:
@@ -399,7 +454,7 @@ def create_app() -> FastAPI:
 
         response = HybridSearch(
             repository=ChunkRepository(conn),
-            embedder=build_embedder(repo.get_model_settings(tenant_id)),
+            embedder=embedder_for_tenant(tenants=repo, tenant_id=tenant_id),
             backend=backend,
         ).search(tenant_id=tenant_id, query=body.query, limit=body.limit)
 
@@ -443,7 +498,7 @@ def create_app() -> FastAPI:
 
         IngestPipeline(
             repository=ChunkRepository(conn),
-            embedder=build_embedder(repo.get_model_settings(tenant_id)),
+            embedder=embedder_for_tenant(tenants=repo, tenant_id=tenant_id),
         ).ingest_knowledge(tenant_id=tenant_id, knowledge=created)
 
         return KnowledgeOut(
@@ -474,7 +529,7 @@ def create_app() -> FastAPI:
 
         IngestPipeline(
             repository=ChunkRepository(conn),
-            embedder=build_embedder(repo.get_model_settings(tenant_id)),
+            embedder=embedder_for_tenant(tenants=repo, tenant_id=tenant_id),
         ).ingest_knowledge(tenant_id=tenant_id, knowledge=refreshed)
         return {"ok": True}
 

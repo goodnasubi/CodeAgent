@@ -16,6 +16,15 @@ from cryptography.fernet import Fernet, InvalidToken
 
 ENV_KEY = "KB_SECRET_KEY"
 
+KIND_LLM = "llm"
+KIND_EMBEDDING = "embedding"
+
+#: API キーを入れる列。**呼び出し側の文字列をそのまま SQL に混ぜない**ための対応表。
+_API_KEY_COLUMNS = {
+    KIND_LLM: "encrypted_llm_api_key",
+    KIND_EMBEDDING: "encrypted_embedding_api_key",
+}
+
 
 class SecretKeyMissing(RuntimeError):
     """暗号鍵が設定されていない。"""
@@ -176,6 +185,40 @@ class TenantRepository:
                 settings.embedding_dim,
             ),
         )
+
+    def set_model_api_key(self, *, tenant_id: UUID, kind: str, api_key: str) -> None:
+        """LLM / embedding プロバイダの API キーを保存する。
+
+        モデル選択（set_model_settings）とは別の操作にしてある。設定画面で
+        プロバイダ名だけ直したいときに、キーを空で上書きして消してしまう
+        事故を防ぐため。
+        """
+        column = _API_KEY_COLUMNS[kind]
+        self._conn.execute(
+            f"INSERT INTO tenant_model_settings (tenant_id, {column})"
+            " VALUES (%s, %s)"
+            " ON CONFLICT (tenant_id) DO UPDATE SET"
+            f"   {column} = EXCLUDED.{column}, updated_at = now()",
+            (tenant_id, self._cipher.encrypt(api_key.encode())),
+        )
+
+    def get_model_api_key(self, tenant_id: UUID, kind: str) -> str | None:
+        column = _API_KEY_COLUMNS[kind]
+        with self._conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {column} FROM tenant_model_settings WHERE tenant_id = %s",
+                (tenant_id,),
+            )
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return None
+            try:
+                return self._cipher.decrypt(bytes(row[0])).decode()
+            except InvalidToken as exc:
+                raise TokenUnreadable(
+                    "保存済みの API キーを復号できません。"
+                    f"{ENV_KEY} が変わった可能性があります"
+                ) from exc
 
     def get_model_settings(self, tenant_id: UUID) -> ModelSettings:
         with self._conn.cursor() as cur:

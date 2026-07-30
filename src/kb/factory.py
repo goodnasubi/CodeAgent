@@ -19,6 +19,7 @@ from .db.repository import ChunkRepository
 from .db.sync import SyncStateRepository
 from .embeddings import EmbeddingProvider, HashingEmbeddingProvider
 from .ingest import IngestPipeline
+from .llm import LlmClient
 from .notifications import (
     EmailNotifier,
     InAppNotifier,
@@ -26,8 +27,17 @@ from .notifications import (
     Notifier,
     SlackNotifier,
 )
+from .providers import gemini
+from .providers.gemini import GeminiEmbeddingProvider, GeminiLlmClient
 from .sync import SyncRunner
-from .tenants import KbConnection, ModelSettings, TenantRepository, load_cipher
+from .tenants import (
+    KIND_EMBEDDING,
+    KIND_LLM,
+    KbConnection,
+    ModelSettings,
+    TenantRepository,
+    load_cipher,
+)
 
 KB_TYPES = ("github", "gitlab", "redmine", "relation")
 
@@ -42,6 +52,10 @@ class UnknownBackend(ValueError):
 
 class BackendNotConfigured(RuntimeError):
     """テナントに知識ベースが設定されていない。"""
+
+
+class ProviderNotConfigured(RuntimeError):
+    """プロバイダを選んでいるのに API キーが無い。"""
 
 
 def build_backend(
@@ -84,19 +98,61 @@ def build_backend(
     raise UnknownBackend(f"未対応の知識ベースです: {connection.kb_type}")
 
 
-def build_embedder(settings: ModelSettings) -> EmbeddingProvider:
+def build_embedder(
+    settings: ModelSettings, *, api_key: str | None = None
+) -> EmbeddingProvider:
     """embedding プロバイダを作る。
 
-    実プロバイダ（OpenAI / Gemini / Claude）は API キーが要るため未実装。
-    それまでは開発用のハッシュ実装で動かす。
+    Anthropic は embedding の API を提供していないため、**LLM の選択肢と
+    embedding の選択肢は一致しない**。`claude` は LLM 側にしか現れない。
     """
     if settings.embedding_provider == "hashing":
         return HashingEmbeddingProvider(
             dimensions=settings.embedding_dim, model=settings.embedding_model
         )
+
+    if settings.embedding_provider == "gemini":
+        if not api_key:
+            raise ProviderNotConfigured(
+                "Gemini の API キーが設定されていません"
+            )
+        return GeminiEmbeddingProvider(
+            api_key=api_key,
+            model=settings.embedding_model or gemini.DEFAULT_EMBEDDING_MODEL,
+            dimensions=settings.embedding_dim,
+        )
+
     raise UnknownBackend(
-        f"embedding プロバイダ '{settings.embedding_provider}' は未実装です"
-        "（API キーが必要なため）"
+        f"embedding プロバイダ '{settings.embedding_provider}' は未対応です"
+    )
+
+
+def build_llm(settings: ModelSettings, *, api_key: str | None = None) -> LlmClient | None:
+    """LLM クライアントを作る。
+
+    **未設定なら None を返す**（例外にしない）。LLM を使うのは画像の
+    文字起こしだけで、設定していないテナントでも他の機能は動くため。
+    """
+    if settings.llm_provider == "gemini" and api_key:
+        return GeminiLlmClient(
+            api_key=api_key, model=settings.llm_model or gemini.DEFAULT_LLM_MODEL
+        )
+    return None
+
+
+def embedder_for_tenant(
+    *, tenants: TenantRepository, tenant_id: UUID
+) -> EmbeddingProvider:
+    return build_embedder(
+        tenants.get_model_settings(tenant_id),
+        api_key=tenants.get_model_api_key(tenant_id, KIND_EMBEDDING),
+    )
+
+
+def llm_for_tenant(*, tenants: TenantRepository, tenant_id: UUID) -> LlmClient | None:
+    return build_llm(
+        tenants.get_model_settings(tenant_id),
+        api_key=tenants.get_model_api_key(tenant_id, KIND_LLM),
     )
 
 
@@ -161,7 +217,7 @@ def build_sync_runner(
     return SyncRunner(
         pipeline=IngestPipeline(
             repository=ChunkRepository(conn),
-            embedder=build_embedder(repo.get_model_settings(tenant_id)),
+            embedder=embedder_for_tenant(tenants=repo, tenant_id=tenant_id),
         ),
         backend=backend_for_tenant(tenants=repo, tenant_id=tenant_id),
         state=SyncStateRepository(conn),

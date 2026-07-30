@@ -135,6 +135,61 @@ def test_model_settings_roundtrip(client, tenant):
     assert body["embedding_dim"] == 256
 
 
+def test_model_api_key_is_never_returned(client, tenant):
+    """KB のトークンと同じく、API キーはレスポンスに載せない。"""
+    client.put(
+        f"/api/tenants/{tenant}/models",
+        json={
+            "llm_provider": "gemini",
+            "llm_model": "gemini-2.5-flash",
+            "embedding_provider": "hashing",
+            "embedding_model": "hashing-dev",
+            "embedding_dim": 256,
+            "llm_api_key": "とても秘密のキー",
+        },
+    )
+    body = client.get(f"/api/tenants/{tenant}/models").json()
+    assert "とても秘密のキー" not in str(body)
+    assert "llm_api_key" not in body
+    # 設定済みかどうかだけは分かる
+    assert body["has_llm_api_key"] is True
+    assert body["has_embedding_api_key"] is False
+
+
+def test_omitting_the_api_key_keeps_the_stored_one(client, tenant):
+    """プロバイダ名だけ直したいときに、鍵を消してしまわない。"""
+    base = {
+        "llm_provider": "gemini",
+        "llm_model": "gemini-2.5-flash",
+        "embedding_provider": "hashing",
+        "embedding_model": "hashing-dev",
+        "embedding_dim": 256,
+    }
+    client.put(f"/api/tenants/{tenant}/models", json={**base, "llm_api_key": "k"})
+    client.put(f"/api/tenants/{tenant}/models", json={**base, "llm_model": "別のモデル"})
+
+    body = client.get(f"/api/tenants/{tenant}/models").json()
+    assert body["llm_model"] == "別のモデル"
+    assert body["has_llm_api_key"] is True
+
+
+def test_gemini_embedding_without_a_key_is_a_400(client, tenant):
+    """設定漏れであってサーバー障害ではないので 500 にしない。"""
+    client.put(
+        f"/api/tenants/{tenant}/models",
+        json={
+            "llm_provider": "gemini",
+            "llm_model": "",
+            "embedding_provider": "gemini",
+            "embedding_model": "",
+            "embedding_dim": 768,
+        },
+    )
+    response = client.post(f"/api/tenants/{tenant}/search", json={"query": "何か"})
+    assert response.status_code == 400
+    assert "キー" in response.json()["detail"]
+
+
 # --------------------------------------------------------------- 検索
 
 
