@@ -13,6 +13,7 @@ embedding するので、ここが拾うのは KB を直接触られたケース
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID
@@ -23,6 +24,30 @@ from .ingest import IngestPipeline
 from .notifications import NotificationDispatcher
 
 logger = logging.getLogger(__name__)
+
+INTERVAL_ENV = "KB_SYNC_INTERVAL_SECONDS"
+
+#: 既定のポーリング間隔（秒）。コードではなく設定で決めるべき値なので、
+#: 環境変数で上書きできる。
+DEFAULT_INTERVAL_SECONDS = 600
+
+
+def interval_from_env() -> float:
+    """ポーリング間隔を設定から読む。
+
+    値が壊れていたら既定値に戻さず落とす。黙って 10 分に戻ると
+    「2 分おきにしたはずなのに動かない」の原因が見えなくなる。
+    """
+    raw = os.environ.get(INTERVAL_ENV)
+    if not raw:
+        return float(DEFAULT_INTERVAL_SECONDS)
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{INTERVAL_ENV} は秒数で指定してください: {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{INTERVAL_ENV} は正の秒数で指定してください: {raw!r}")
+    return value
 
 # 初回取り込みの起点。KB にある既存の知識をすべて対象にする。
 #

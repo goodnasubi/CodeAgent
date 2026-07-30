@@ -10,7 +10,7 @@
 
 設計上の論点は17件すべて確定済み。**取り込みパイプライン（ドキュメント変換 → チャンク分割 → embedding → 格納）、ハイブリッド検索（類似度・キーワード・つながりの3信号）、通知、差分取り込み、HTTP API、4画面の UI、GitHub / GitLab / Redmine / Re:lation 連携まで実装済み**です。
 
-未実装: 実 embedding プロバイダ（API キー待ち）、cron の常駐プロセス（同期処理自体は実装済みで、定期実行の仕組みが未着手）。
+未実装: 実 LLM / embedding プロバイダ（API キー待ち。画像 OCR もここで止まっています）。
 
 ## 開発
 
@@ -51,6 +51,7 @@ KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" uv run pyt
 | `kb.ranking` | RRF による検索結果のマージ（順位のみを使う） |
 | `kb.search` | ハイブリッド検索。3つの信号を束ね、使えない信号は自動で飛ばす |
 | `kb.sync` | KB からの取り込み（cron ポーリング）。取り込み → 通知まで |
+| `kb.scheduler` | 常駐スケジューラ。全テナントを一定間隔で `kb.sync` に流す |
 | `kb.tenants` | テナント設定。KB のトークンは暗号化して保存する |
 | `kb.factory` | テナント設定から実際に使うアダプタを組み立てる |
 | `kb.api` | HTTP API（FastAPI） |
@@ -85,6 +86,14 @@ KB_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_SECRET_KEY="
 ```bash
 cd web && npm install && npm run dev
 ```
+
+定期取り込みの常駐プロセス（**API サーバーとは別プロセスで起動します**。uvicorn を複数ワーカーで動かすとワーカーの数だけスケジューラが立ってしまうため）:
+
+```bash
+KB_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_SECRET_KEY=... uv run python -m kb.scheduler
+```
+
+間隔は `KB_SYNC_INTERVAL_SECONDS`（既定 600 秒）で変えられます。メール通知を使う場合は `KB_SMTP_HOST` / `KB_SMTP_PORT` / `KB_SMTP_SENDER` を設定してください（未設定ならメールのチャネルは登録されず、メール宛の通知規則は「未対応のチャネル」として失敗に記録されます）。
 
 最初は開発者向け画面でテナントとアカウントを払い出し、管理設定画面で知識ベースを設定してください。
 

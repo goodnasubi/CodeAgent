@@ -16,11 +16,11 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .backends.base import KnowledgeBaseError, UnsupportedOperation
+from .backends.base import KnowledgeBaseError
 from .db.conversations import ROLE_ASSISTANT, ROLE_USER, ConversationRepository
 from .db.notifications import NotificationRepository
 from .db.repository import ChunkRepository
-from .db.sync import SyncStateRepository
+from .db.sync import SyncInProgress, SyncStateRepository, tenant_sync_lock
 from .documents import (
     ConversionError,
     ConvertedDocument,
@@ -32,11 +32,11 @@ from .factory import (
     BackendNotConfigured,
     backend_for_tenant,
     build_embedder,
+    build_sync_runner,
 )
 from .ingest import IngestPipeline
-from .notifications import InAppNotifier, NotificationDispatcher, SlackNotifier
 from .search import HybridSearch
-from .sync import SyncRunner
+from .sync import interval_from_env
 from .tenants import KbConnection, ModelSettings, TenantRepository, load_cipher
 
 DSN_ENV = "KB_DSN"
@@ -202,6 +202,10 @@ class MessageOut(BaseModel):
 def create_app() -> FastAPI:
     app = FastAPI(title="知識ベース検索・登録システム", version="0.1.0")
 
+    # 設定の誤りは起動時に出す。壊れた値をリクエストのたびに 500 にするより、
+    # 立ち上がらない方が気づける（KB_SECRET_KEY と同じ考え方）
+    sync_interval = interval_from_env()
+
     # 社内クローズド運用が前提。開発時にフロントを別ポートで動かすため許可する
     app.add_middleware(
         CORSMiddleware,
@@ -242,28 +246,20 @@ def create_app() -> FastAPI:
 
     @app.post("/api/admin/tenants/{tenant_id}/sync", tags=["developer"])
     def run_sync(tenant_id: UUID, conn: psycopg.Connection = Depends(get_conn)):
-        """取り込みを手動で走らせる。本来は cron が定期実行する。"""
-        repo = TenantRepository(conn, cipher=load_cipher())
-        chunks = ChunkRepository(conn)
-        notifications = NotificationRepository(conn)
+        """取り込みを手動で走らせる。定期実行は `python -m kb.scheduler` が担う。
+
+        常駐スケジューラと同じ組み立て・同じロックを使う。両者が同時に同じ
+        テナントを取り込むとラベルの差分検知が二重に走り、通知が二度飛ぶ。
+        """
         try:
-            backend = backend_for_tenant(tenants=repo, tenant_id=tenant_id)
+            with tenant_sync_lock(conn, tenant_id=tenant_id):
+                runner = build_sync_runner(conn=conn, tenant_id=tenant_id)
+                report = runner.sync(tenant_id=tenant_id)
+        except SyncInProgress as exc:
+            raise HTTPException(409, str(exc)) from exc
         except BackendNotConfigured as exc:
             raise HTTPException(400, str(exc)) from exc
 
-        runner = SyncRunner(
-            pipeline=IngestPipeline(
-                repository=chunks,
-                embedder=build_embedder(repo.get_model_settings(tenant_id)),
-            ),
-            backend=backend,
-            state=SyncStateRepository(conn),
-            dispatcher=NotificationDispatcher(
-                repository=notifications,
-                notifiers=[InAppNotifier(notifications), SlackNotifier()],
-            ),
-        )
-        report = runner.sync(tenant_id=tenant_id)
         return {
             "ingested": report.ingested,
             "notified": report.notified,
@@ -274,12 +270,19 @@ def create_app() -> FastAPI:
     @app.get("/api/admin/tenants/{tenant_id}/sync", tags=["developer"])
     def sync_status(tenant_id: UUID, conn: psycopg.Connection = Depends(get_conn)):
         state = SyncStateRepository(conn).get(tenant_id=tenant_id)
+        # 画面側が「何分おきに動くはずか」を示せるように間隔も返す
         if state is None:
-            return {"last_synced_at": None, "last_run_at": None, "last_error": None}
+            return {
+                "last_synced_at": None,
+                "last_run_at": None,
+                "last_error": None,
+                "interval_seconds": sync_interval,
+            }
         return {
             "last_synced_at": state.last_synced_at,
             "last_run_at": state.last_run_at,
             "last_error": state.last_error,
+            "interval_seconds": sync_interval,
         }
 
     # ------------------------------------------------------------ 管理設定

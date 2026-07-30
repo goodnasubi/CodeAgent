@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync, the HTTP API, and all four backend adapters. `web/` holds the React UI. **Still missing: real LLM and embedding providers** (no API keys here — this also blocks image OCR) and a resident scheduler to run `SyncRunner` on the 10-minute interval — the sync itself works and is exposed at `POST /api/admin/tenants/{id}/sync`.
+Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync and the resident scheduler that drives it, the HTTP API, and all four backend adapters. `web/` holds the React UI. **The only thing still missing is real LLM and embedding providers** (no API keys here — this also blocks image OCR).
 
 ```bash
 uv run python -m pytest
@@ -122,7 +122,7 @@ Three constraints that shape it:
 
 File upload needs `python-multipart`. On the frontend, `request()` must *not* set `Content-Type` for `FormData` — writing it by hand drops the multipart boundary and the server cannot parse the body.
 
-Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption). The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
+Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption), `KB_SYNC_INTERVAL_SECONDS` (scheduler interval, default 600), `KB_SMTP_HOST`/`KB_SMTP_PORT`/`KB_SMTP_SENDER` (optional, enables the email notifier). A malformed interval raises at startup rather than falling back to the default — silently ignoring the config is how a "why isn't it polling every 2 minutes" hunt starts. The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
 
 `SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
 
@@ -131,6 +131,15 @@ Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encrypti
 - **A failure on one knowledge never aborts the batch**, and a `relations()` failure still ingests the knowledge itself: losing one search signal beats losing the knowledge.
 
 First run starts from `EPOCH`, so onboarding a tenant imports everything the KB already holds. That is exactly why the notification dispatcher treats "no prior label state" as "notify nothing" — otherwise onboarding fires a notification per pre-existing label.
+
+`kb.scheduler` is what actually calls `SyncRunner` on the interval — `python -m kb.scheduler`, a **separate process from the API**. Run it inside uvicorn and you get one scheduler per worker, all polling the same tenants. Four things there are load-bearing:
+
+- **Concurrent syncs of one tenant double-fire notifications**, which is why `tenant_sync_lock` (a Postgres advisory lock keyed on the tenant) guards both the scheduler and the manual `POST /sync` — the endpoint returns 409 when the scheduler holds it, the scheduler records `"実行中"` and moves on. Re-ingesting is harmless (`replace_issue_chunks` overwrites), but label-diff detection reads-compares-writes `knowledge_label_state`, so two passes both see the label as newly added. A notification cannot be un-sent.
+- **The loop swallows everything.** A per-tenant failure becomes a `skipped` entry; a whole-pass failure (DB unreachable) is logged and retried next interval. A resident process that exits on the first bad pass is worse than no scheduler at all. Correctness is preserved by `SyncRunner` not advancing its checkpoint.
+- **A tenant with no KB configured is `skipped`, not failed** — provisioning a tenant before setting its backend is normal, and it must not look like breakage.
+- **SIGTERM/SIGINT interrupt the wait, not a running pass.** Killing mid-pass just means the checkpoint doesn't advance and the next start redoes the range.
+
+`build_sync_runner` in `kb.factory` assembles the runner for **both** the scheduler and the manual endpoint, so the two cannot drift into "notifications only fire from one of them". `build_shared_notifiers` is split out because `SlackNotifier` holds an `httpx.Client` — the resident process reuses one instead of building a client per tenant per pass. Email is registered only when `KB_SMTP_HOST` is set; without it, email-channel rules land in `DispatchResult.failed` as "未対応のチャネル" rather than vanishing.
 
 **Hybrid results merge with RRF**, on ranks alone. Weighted score fusion is not an option here: the two searches return incomparable values (cosine distance vs. KB relevance), some KB search APIs return no score at all, and the three backends define relevance differently. Ranks are the only signal all of them reliably produce.
 

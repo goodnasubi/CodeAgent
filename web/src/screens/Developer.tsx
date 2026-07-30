@@ -147,7 +147,9 @@ export function Developer({ identity }: { identity: Identity | null }) {
           <div className="card">
             <h3>知識ベースからの取り込み</h3>
             <p className="muted" style={{ marginTop: 0 }}>
-              本来は 10 分ごとに自動で走ります。ここでは手動で実行できます。
+              常駐スケジューラ（<code>python -m kb.scheduler</code>）が
+              {status ? ` ${Math.round(status.interval_seconds / 60)} 分` : ""}
+              ごとに自動で走ります。ここでは手動で実行できます。
             </p>
 
             <button className="primary" onClick={runSync} disabled={busy}>

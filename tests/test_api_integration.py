@@ -325,6 +325,28 @@ def test_sync_status_before_any_run(client, tenant):
     assert body["last_synced_at"] is None
 
 
+def test_sync_status_reports_the_polling_interval(client, tenant):
+    """常駐スケジューラが何分おきに動くはずかを画面に出せること。"""
+    body = client.get(f"/api/admin/tenants/{tenant}/sync").json()
+    assert body["interval_seconds"] == 600
+
+
 def test_sync_without_a_kb_is_rejected(client, tenant):
     response = client.post(f"/api/admin/tenants/{tenant}/sync")
     assert response.status_code == 400
+
+
+def test_manual_sync_refuses_to_run_alongside_the_scheduler(client, tenant, dsn):
+    """常駐スケジューラが取り込み中のテナントは、手動実行を受け付けない。
+
+    同時に走るとラベルの差分を両方が「新しく付いた」と判定し、通知が二度飛ぶ。
+    """
+    import psycopg
+
+    from kb.db.sync import tenant_sync_lock
+
+    with psycopg.connect(dsn, autocommit=True) as other:
+        with tenant_sync_lock(other, tenant_id=uuid.UUID(tenant)):
+            response = client.post(f"/api/admin/tenants/{tenant}/sync")
+
+    assert response.status_code == 409
