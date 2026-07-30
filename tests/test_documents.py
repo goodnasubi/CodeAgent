@@ -4,6 +4,9 @@
 分けられないので触らない。ここで確かめたいのは**入力の門番**の方。
 """
 
+import base64
+from pathlib import Path
+
 import pytest
 
 from kb.documents import (
@@ -12,6 +15,7 @@ from kb.documents import (
     DocumentConverter,
     UnsupportedSource,
 )
+from kb.providers import ProviderError
 
 
 @pytest.fixture
@@ -70,3 +74,70 @@ def test_only_http_urls_are_accepted(converter, url):
 def test_missing_file_is_a_conversion_error(converter, tmp_path):
     with pytest.raises(ConversionError):
         converter.convert_path(tmp_path / "ない.txt")
+
+
+# --------------------------------------------------------- 画像の文字起こし
+
+
+class FakeLlm:
+    """LlmClient の代役。呼ばれたかどうかも見たいので記録する。"""
+
+    model = "fake"
+
+    def __init__(self, text: str = "", error: Exception | None = None) -> None:
+        self.text = text
+        self.error = error
+        self.calls: list[tuple[int, str]] = []
+
+    def extract_text_from_image(self, data: bytes, *, mime_type: str) -> str:
+        self.calls.append((len(data), mime_type))
+        if self.error is not None:
+            raise self.error
+        return self.text
+
+
+PNG = (Path(__file__).parent / "data" / "ocr-sample.png").read_bytes()
+
+
+def test_image_goes_to_the_llm_not_markitdown():
+    """markitdown の画像変換は Exif を返すだけで、文字起こしにはならない。"""
+    llm = FakeLlm("ORA-01555: snapshot too old")
+    doc = DocumentConverter(llm=llm).convert_bytes(PNG, filename="error.png")
+
+    assert doc.source_name == "error.png"
+    assert "ORA-01555" in doc.text
+    assert llm.calls == [(len(PNG), "image/png")]
+
+
+def test_image_without_an_llm_does_not_fail():
+    """LLM 未設定でも 500 にはしない。文字が取れないだけ。"""
+    doc = DocumentConverter().convert_bytes(PNG, filename="error.png")
+    assert "ORA-01555" not in doc.text
+
+
+def test_unsupported_image_format_does_not_reach_the_llm():
+    """gif は Gemini が受け付けない形式。**LLM には渡さず** markitdown に回す。
+
+    markitdown も gif を扱えないので、結果は「変換できない」になる。
+    無駄に API を叩いて 400 をもらうより、手前で分かれる方がよい。
+    """
+    gif = base64.b64decode(
+        "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+    )
+    llm = FakeLlm("呼ばれてはいけない")
+    with pytest.raises(ConversionError):
+        DocumentConverter(llm=llm).convert_bytes(gif, filename="x.gif")
+    assert llm.calls == []
+
+
+def test_llm_failure_becomes_a_conversion_error():
+    llm = FakeLlm(error=ProviderError("レート制限"))
+    with pytest.raises(ConversionError, match="文字起こし"):
+        DocumentConverter(llm=llm).convert_bytes(PNG, filename="error.png")
+
+
+def test_non_image_ignores_the_llm():
+    llm = FakeLlm("呼ばれてはいけない")
+    doc = DocumentConverter(llm=llm).convert_bytes(b"ORA-01555", filename="log.txt")
+    assert "ORA-01555" in doc.text
+    assert llm.calls == []

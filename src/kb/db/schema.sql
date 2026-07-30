@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS tenant_kb_connections (
 
 
 -- LLM / embedding の選択。どちらもテナントごとに選べる。
+--
+-- API キーは KB のトークンと同じくアプリ側で暗号化して保存し、レスポンスには
+-- 決して載せない。**LLM と embedding で別のプロバイダを選べる**ため鍵は 2 本
+-- 持つ（同じプロバイダを選んだ場合は同じ値が 2 つ入る）。
 CREATE TABLE IF NOT EXISTS tenant_model_settings (
   tenant_id          UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
   llm_provider       TEXT NOT NULL DEFAULT 'claude',
@@ -66,8 +70,17 @@ CREATE TABLE IF NOT EXISTS tenant_model_settings (
   embedding_provider TEXT NOT NULL DEFAULT 'hashing',
   embedding_model    TEXT NOT NULL DEFAULT 'hashing-dev',
   embedding_dim      INT  NOT NULL DEFAULT 768,
+  encrypted_llm_api_key       BYTEA,
+  encrypted_embedding_api_key BYTEA,
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 既に作られている DB にも列を足す（マイグレーション機構は持たず、
+-- schema.sql を何度流しても同じ状態になるようにしてある）。
+ALTER TABLE tenant_model_settings
+  ADD COLUMN IF NOT EXISTS encrypted_llm_api_key BYTEA;
+ALTER TABLE tenant_model_settings
+  ADD COLUMN IF NOT EXISTS encrypted_embedding_api_key BYTEA;
 
 
 -- アカウント。管理者が払い出す識別子で運用する（独自認証は持たない）。

@@ -30,6 +30,20 @@ export interface ModelSettings {
   embedding_provider: string;
   embedding_model: string;
   embedding_dim: number;
+  /** APIキーそのものは返らない。設定済みかどうかだけ分かる。 */
+  has_llm_api_key: boolean;
+  has_embedding_api_key: boolean;
+}
+
+/** 保存時の本体。キーは入力があったときだけ送る（未指定なら保存済みの値が残る）。 */
+export interface ModelSettingsUpdate {
+  llm_provider: string;
+  llm_model: string;
+  embedding_provider: string;
+  embedding_model: string;
+  embedding_dim: number;
+  llm_api_key?: string;
+  embedding_api_key?: string;
 }
 
 export interface SearchHit {
@@ -158,7 +172,7 @@ export const api = {
     }),
   getModels: (tenantId: string) =>
     request<ModelSettings>(`/api/tenants/${tenantId}/models`),
-  setModels: (tenantId: string, body: ModelSettings) =>
+  setModels: (tenantId: string, body: ModelSettingsUpdate) =>
     request<{ ok: boolean }>(`/api/tenants/${tenantId}/models`, {
       method: "PUT",
       ...json(body),

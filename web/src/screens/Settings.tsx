@@ -32,6 +32,10 @@ export function Settings({ identity }: { identity: Identity }) {
   const [messageBoxId, setMessageBoxId] = useState("");
   const [token, setToken] = useState("");
   const [models, setModels] = useState<ModelSettings | null>(null);
+  // APIキーは models と分けて持つ。取得しても値は返ってこないため、
+  // 「入力があったときだけ送る」を素直に書けるようにする
+  const [llmKey, setLlmKey] = useState("");
+  const [embeddingKey, setEmbeddingKey] = useState("");
   const [rules, setRules] = useState<NotificationRule[]>([]);
   const [newRule, setNewRule] = useState<NotificationRule>({
     label: "",
@@ -188,7 +192,7 @@ export function Settings({ identity }: { identity: Identity }) {
           <>
             <div className="row">
               <div className="field">
-                <label htmlFor="llm">対話・要約に使うLLM</label>
+                <label htmlFor="llm">画像の文字起こしに使うLLM</label>
                 <select
                   id="llm"
                   value={models.llm_provider}
@@ -196,24 +200,96 @@ export function Settings({ identity }: { identity: Identity }) {
                     setModels({ ...models, llm_provider: e.target.value })
                   }
                 >
-                  <option value="claude">Claude API</option>
-                  <option value="openai">GPT-5.x</option>
                   <option value="gemini">Gemini</option>
+                  <option value="claude">Claude API（未対応）</option>
+                  <option value="openai">GPT-5.x（未対応）</option>
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="emb">検索に使うembeddingモデル</label>
+                <label htmlFor="llm-model">LLMのモデル名</label>
+                <input
+                  id="llm-model"
+                  value={models.llm_model}
+                  placeholder="空欄なら既定（gemini-3.6-flash）"
+                  onChange={(e) =>
+                    setModels({ ...models, llm_model: e.target.value })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="llm-key">LLMのAPIキー</label>
+                <input
+                  id="llm-key"
+                  type="password"
+                  value={llmKey}
+                  placeholder={models.has_llm_api_key ? "設定済み（変更する場合のみ入力）" : "未設定"}
+                  onChange={(e) => setLlmKey(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="row">
+              <div className="field">
+                <label htmlFor="emb-provider">検索に使うembedding</label>
+                <select
+                  id="emb-provider"
+                  value={models.embedding_provider}
+                  onChange={(e) =>
+                    setModels({ ...models, embedding_provider: e.target.value })
+                  }
+                >
+                  <option value="gemini">Gemini</option>
+                  <option value="hashing">開発用（意味は捉えません）</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="emb">embeddingのモデル名</label>
                 <input
                   id="emb"
                   value={models.embedding_model}
+                  placeholder="空欄なら既定（gemini-embedding-001）"
                   onChange={(e) =>
                     setModels({ ...models, embedding_model: e.target.value })
                   }
                 />
               </div>
+              <div className="field">
+                <label htmlFor="emb-dim">次元数</label>
+                <input
+                  id="emb-dim"
+                  type="number"
+                  value={models.embedding_dim}
+                  onChange={(e) =>
+                    setModels({ ...models, embedding_dim: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="emb-key">embeddingのAPIキー</label>
+                <input
+                  id="emb-key"
+                  type="password"
+                  value={embeddingKey}
+                  placeholder={
+                    models.has_embedding_api_key ? "設定済み（変更する場合のみ入力）" : "未設定"
+                  }
+                  onChange={(e) => setEmbeddingKey(e.target.value)}
+                />
+              </div>
               <button
                 onClick={async () => {
-                  await api.setModels(identity.tenantId, models);
+                  await api.setModels(identity.tenantId, {
+                    llm_provider: models.llm_provider,
+                    llm_model: models.llm_model,
+                    embedding_provider: models.embedding_provider,
+                    embedding_model: models.embedding_model,
+                    embedding_dim: models.embedding_dim,
+                    // 空欄のときは送らない。送ると保存済みのキーを消してしまう
+                    ...(llmKey ? { llm_api_key: llmKey } : {}),
+                    ...(embeddingKey ? { embedding_api_key: embeddingKey } : {}),
+                  });
+                  setLlmKey("");
+                  setEmbeddingKey("");
+                  setModels(await api.getModels(identity.tenantId));
                   setMessage({ ok: true, text: "モデル設定を保存しました" });
                 }}
               >
@@ -221,7 +297,7 @@ export function Settings({ identity }: { identity: Identity }) {
               </button>
             </div>
             <p className="muted">
-              embeddingモデルを変えると、そのテナントの知識をすべて作り直す必要があります（異なるモデルのベクトルは比較できないため）。作り直しは開発者向け画面から手動で実行します。
+              APIキーは暗号化して保存され、画面には二度と返しません。次元数は2,000以下にしてください（それを超えると検索インデックスを作れません）。embeddingモデルや次元数を変えると、そのテナントの知識をすべて作り直す必要があります（異なるモデルのベクトルは比較できないため）。作り直しは開発者向け画面から手動で実行します。
             </p>
           </>
         )}
