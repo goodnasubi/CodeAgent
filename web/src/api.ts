@@ -76,6 +76,8 @@ export interface SyncStatus {
   last_synced_at: string | null;
   last_run_at: string | null;
   last_error: string | null;
+  /** 常駐スケジューラのポーリング間隔（秒）。設定で変えられる。 */
+  interval_seconds: number;
 }
 
 export interface SyncReport {

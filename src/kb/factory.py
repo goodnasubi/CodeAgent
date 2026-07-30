@@ -2,17 +2,38 @@
 
 from __future__ import annotations
 
+import os
+import smtplib
+from typing import Sequence
 from uuid import UUID
+
+import psycopg
 
 from .backends.base import KnowledgeBase
 from .backends.github import GitHubKnowledgeBase
 from .backends.gitlab import GitLabKnowledgeBase
 from .backends.redmine import RedmineKnowledgeBase
 from .backends.relation import RelationKnowledgeBase
+from .db.notifications import NotificationRepository
+from .db.repository import ChunkRepository
+from .db.sync import SyncStateRepository
 from .embeddings import EmbeddingProvider, HashingEmbeddingProvider
-from .tenants import KbConnection, ModelSettings, TenantRepository
+from .ingest import IngestPipeline
+from .notifications import (
+    EmailNotifier,
+    InAppNotifier,
+    NotificationDispatcher,
+    Notifier,
+    SlackNotifier,
+)
+from .sync import SyncRunner
+from .tenants import KbConnection, ModelSettings, TenantRepository, load_cipher
 
 KB_TYPES = ("github", "gitlab", "redmine", "relation")
+
+SMTP_HOST_ENV = "KB_SMTP_HOST"
+SMTP_PORT_ENV = "KB_SMTP_PORT"
+SMTP_SENDER_ENV = "KB_SMTP_SENDER"
 
 
 class UnknownBackend(ValueError):
@@ -89,3 +110,64 @@ def backend_for_tenant(
     if token is None:
         raise BackendNotConfigured("接続トークンが保存されていません")
     return build_backend(connection=connection, token=token)
+
+
+def build_shared_notifiers() -> list[Notifier]:
+    """DB 接続に依存しない通知チャネル。
+
+    常駐プロセスでは作り直さずに使い回せる（Slack は HTTP クライアントを
+    抱えるため、周回ごとに作ると接続が積み上がる）。
+
+    メールは SMTP の設定が要るので、環境変数が無ければ登録しない。未登録の
+    チャネルに対する通知規則は「未対応のチャネル」として `DispatchResult.failed`
+    に載る（黙って消えるより、設定漏れとして見えた方がよい）。
+    """
+    notifiers: list[Notifier] = [SlackNotifier()]
+
+    host = os.environ.get(SMTP_HOST_ENV)
+    if host:
+        port = int(os.environ.get(SMTP_PORT_ENV, "25"))
+        notifiers.append(
+            EmailNotifier(
+                sender=os.environ.get(SMTP_SENDER_ENV, "kb@localhost"),
+                smtp_factory=lambda: smtplib.SMTP(host, port),
+            )
+        )
+    return notifiers
+
+
+def build_notifiers(
+    repository: NotificationRepository, *, shared: Sequence[Notifier] | None = None
+) -> list[Notifier]:
+    """使える通知チャネルを揃える。アプリ内通知だけは DB 接続を要する。"""
+    stateless = list(shared) if shared is not None else build_shared_notifiers()
+    return [InAppNotifier(repository), *stateless]
+
+
+def build_sync_runner(
+    *,
+    conn: psycopg.Connection,
+    tenant_id: UUID,
+    tenants: TenantRepository | None = None,
+    notifiers: Sequence[Notifier] | None = None,
+) -> SyncRunner:
+    """1 テナントぶんの取り込み一式を組み立てる。
+
+    常駐スケジューラと開発者画面の手動実行で同じものを使う。片方だけ通知が
+    飛ばない、といった食い違いが起きないようにするため。
+    """
+    repo = tenants or TenantRepository(conn, cipher=load_cipher())
+    notifications = NotificationRepository(conn)
+    return SyncRunner(
+        pipeline=IngestPipeline(
+            repository=ChunkRepository(conn),
+            embedder=build_embedder(repo.get_model_settings(tenant_id)),
+        ),
+        backend=backend_for_tenant(tenants=repo, tenant_id=tenant_id),
+        state=SyncStateRepository(conn),
+        dispatcher=NotificationDispatcher(
+            repository=notifications,
+            notifiers=list(notifiers) if notifiers is not None
+            else build_notifiers(notifications),
+        ),
+    )
