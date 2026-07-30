@@ -58,6 +58,22 @@ def test_satisfies_provider_protocol():
     assert isinstance(provider, EmbeddingProvider)
 
 
+def test_declares_the_measured_max_distance():
+    """実測に基づく値。**変えるなら実機で測り直すこと。**
+
+    gemini-embedding-001 では該当なしのクエリが 0.401 以上に落ちるため、
+    これを上回る値にすると「見つからない」状態が起きなくなる。
+    """
+    provider = GeminiEmbeddingProvider(api_key=API_KEY, client=mock_client(stub(1536)))
+    assert provider.max_distance == 0.40
+    assert (
+        GeminiEmbeddingProvider(
+            api_key=API_KEY, max_distance=0.5, client=mock_client(stub(1536))
+        ).max_distance
+        == 0.5
+    )
+
+
 def test_request_shape():
     seen = {}
 

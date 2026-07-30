@@ -55,7 +55,7 @@ Three things it enforces that would otherwise fail late:
 
 **A model appearing in `ListModels` does not mean your key can call it.** `gemini-2.5-flash` is still listed but returns 404 "no longer available to new users" on `generateContent` for keys issued now — which is exactly what `tests/test_providers_gemini_live.py` exists to catch, since it deliberately exercises the *default* model names. Change a default, run the live test.
 
-Measured with `gemini-embedding-001` at 1,536 dimensions: a vocabulary-free paraphrase sits at cosine distance **0.341**, unrelated text at **0.520**. So the `max_distance` default of 0.85 does nothing here — see the tuning table below.
+Its `max_distance` is **0.40**, measured — see the cutoff section below for why that number and not 0.85.
 
 ## What's here
 
@@ -95,7 +95,22 @@ If you find yourself designing something that treats the local DB as authoritati
 
 Long files are chunked, so one knowledge entry maps to many rows; collapse chunk hits to entry level with `MIN(distance)` after over-fetching.
 
-**Similarity search must cut off at `max_distance` (default 0.85).** Without it every query returns the top N no matter how far away they are — which floods results with noise *and* makes "nothing found, register it as new" unreachable, since the empty state never happens. The right value is embedding-model-specific: `HashingEmbeddingProvider` collides heavily on single Japanese characters (unrelated text lands around 0.84), so **do not tune this number against the dev provider** — only its mechanism can be tested there, using an ASCII query with zero vocabulary overlap.
+**Similarity search must cut off at `max_distance`.** Without it every query returns the top N no matter how far away they are — which floods results with noise *and* makes "nothing found, register it as new" unreachable, since the empty state never happens.
+
+**The cutoff belongs to the embedding provider, not to a shared constant.** `EmbeddingProvider.max_distance` is part of the protocol and each provider declares its own; `HybridSearch` reads it from the embedder unless the caller overrides. This is not a style preference — the distance distribution *is* a property of the model, and one global number is wrong for every provider but one. `ChunkRepository.search` therefore defaults to **no cutoff**: it does not know whose vectors it holds, and a plausible-looking default there is how the wrong threshold spreads.
+
+Note the three-way distinction in `HybridSearch(max_distance=...)`: omitted means "ask the provider" (`PROVIDER_DEFAULT`), `None` means "no cutoff" (for inspecting the distribution), and a number overrides. `None` could not do double duty, hence the sentinel.
+
+Measured values, both by the same method — short query against full knowledge text, which is what search actually does:
+
+| Provider | `max_distance` | Correct pairs | Queries matching nothing |
+|---|---|---|---|
+| `HashingEmbeddingProvider` | 0.85 | 0.46–0.65 | 0.88–1.00 |
+| `gemini-embedding-001` (1,536d) | **0.40** | max 0.372 | min 0.401 |
+
+For Gemini the usable band is narrow: 0.45 lets queries that match nothing start returning results (killing the register-new path), 0.35 starts dropping correct answers. Only 0.40 satisfies both. Unrelated *pairs* leaking in at 0.40 (4 of 55) is accepted — they rank below the correct hit and RRF orders the output; what must hold is that a query matching nothing comes back empty.
+
+**Do not tune any of this against `HashingEmbeddingProvider`** — it compares vocabulary overlap, not meaning, so its distances run high and mean something different. `tests/test_providers_gemini_live.py` asserts the separation against the live API, so model drift breaks the test rather than silently breaking search. If it fails, re-measure the distribution before touching the constant.
 
 Three behaviours here were verified against PostgreSQL 17 + pgvector 0.8.5 (`verify/pgvector-design.sql` reproduces all of them) and each fails *silently*:
 
@@ -181,7 +196,7 @@ Every design question is settled. What remains is numeric tuning against real da
 | cron polling interval | 10 min | how often people actually edit in the KB directly |
 | RRF constant `k` | 60 | whether similarity or keyword results should dominate |
 | `hnsw.ef_search` | 40 (default) | recall vs. latency |
-| `max_distance` | 0.85 | **model-specific — 0.85 is a `HashingEmbeddingProvider` value.** `gemini-embedding-001` puts unrelated text at 0.52, so the cutoff never fires and "nothing found, register it" stays unreachable. Needs to become per-provider rather than one constant |
+| `max_distance` | per provider (Gemini 0.40, hashing 0.85) | irrelevant hits leaking in, or relevant ones being cut — **re-measure the distribution, and change it on the provider**, never as one shared number |
 
 ## Regenerating the overview PNG
 

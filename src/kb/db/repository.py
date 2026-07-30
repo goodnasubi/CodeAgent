@@ -16,17 +16,9 @@ _SCHEMA = Path(__file__).with_name("schema.sql")
 # 検索時に取得するチャンク数。ef_search はこれ以上でなければならない。
 DEFAULT_OVERFETCH = 100
 
-# これより遠い知識は「関連なし」として捨てる（コサイン距離。0 が同一、
-# 1 が無関係、2 が正反対）。
-#
-# **足切りが無いと、どんな質問にも必ず何かが返る。** 無関係な結果が並ぶ
-# だけでなく、「見つからなかったので新しく登録する」という筋道に永久に
-# 到達できなくなる。
-#
-# 適切な値は embedding モデルによって変わるため、実データを見て調整する
-# 前提の値。開発用のハッシュ実装での実測は、関連ありが 0.46〜0.65、
-# 無関係が 0.88〜1.00 だった。
-DEFAULT_MAX_DISTANCE = 0.85
+# 足切りの距離（`max_distance`）の既定値はここに置かない。**モデルごとに
+# 違う値**であり、ここは自分がどのモデルのベクトルを扱っているか知らない。
+# 値は EmbeddingProvider.max_distance が持ち、HybridSearch が渡す。
 
 
 @dataclass(frozen=True)
@@ -180,12 +172,14 @@ class ChunkRepository:
         model: str,
         limit: int = 10,
         overfetch: int = DEFAULT_OVERFETCH,
-        max_distance: float | None = DEFAULT_MAX_DISTANCE,
+        max_distance: float | None = None,
     ) -> list[SearchHit]:
         """類似度検索。チャンク単位で多めに取り、知識単位に畳んで返す。
 
-        `max_distance` より遠い知識は返さない。None を渡すと足切りしない
-        （距離の分布を調べたいときなど）。
+        `max_distance` より遠い知識は返さない。**既定は None（足切りなし）**。
+        適切な値は embedding モデル固有なので、ここでは決められない —
+        本番の経路では HybridSearch が provider の値を渡す。省略できるのは
+        距離の分布そのものを見たいときのためで、検索の既定ではない。
         """
         dimensions = len(query_embedding)
         if overfetch < limit:

@@ -97,6 +97,36 @@ def test_paraphrase_is_closer_than_unrelated(embedder):
     assert near < far
 
 
+def test_max_distance_separates_relevant_from_irrelevant(embedder):
+    """**足切りの値そのものを実機で検証する。**
+
+    max_distance はコードに書いた定数だが、根拠は API の返す距離の分布に
+    ある。モデルが更新されて分布が動けば定数の方が黙って間違いになるので、
+    「関連する質問は通り、無関係な質問は通らない」を実測で押さえる。
+
+    ここが落ちたら定数を直すのではなく、まず分布を測り直すこと。
+    """
+    doc = (
+        "DB接続エラー ORA-01555 の調査手順\n\n"
+        "バッチ処理中に ORA-01555: snapshot too old が発生する場合、"
+        "UNDO表領域の保持期間が不足している。UNDO_RETENTION を確認し、"
+        "長時間実行されるクエリの実行時間より長く設定する。"
+    )
+    # 本文と語彙をほとんど共有しない言い方。単語一致では当たらない
+    related = "バッチが途中で止まる。スナップショットが古すぎるというエラーが出ている"
+    unrelated = "有給休暇の残日数はどこで確認できますか"
+
+    dv, rv, uv = embedder.embed([doc, related, unrelated])
+    near, far = cosine_distance(dv, rv), cosine_distance(dv, uv)
+    print(f"\n関連: {near:.3f} / 無関係: {far:.3f} / 足切り: {embedder.max_distance}")
+
+    assert near <= embedder.max_distance, "関連する質問が足切りされている"
+    assert far > embedder.max_distance, (
+        "無関係な質問が足切りを通り抜けている"
+        "（この状態では「見つからないので新規登録」に到達できない）"
+    )
+
+
 def test_reads_text_from_image(llm):
     text = llm.extract_text_from_image(IMAGE.read_bytes(), mime_type="image/png")
     print(f"\n文字起こし結果:\n{text}")

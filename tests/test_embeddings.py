@@ -64,3 +64,48 @@ def test_empty_text_produces_usable_vector():
 def test_invalid_dimensions_rejected():
     with pytest.raises(ValueError):
         HashingEmbeddingProvider(dimensions=0)
+
+
+# --------------------------------------------- 足切り距離はプロバイダが持つ
+
+
+def test_provider_declares_its_own_max_distance():
+    """モデルごとに分布が違うので、共通の定数ではなく provider が申告する。"""
+    assert HashingEmbeddingProvider().max_distance == 0.85
+    assert HashingEmbeddingProvider(max_distance=0.4).max_distance == 0.4
+
+
+def test_hashing_and_gemini_do_not_share_a_threshold():
+    """**この 2 つが同じ値になったら、どちらかが間違っている。**
+
+    ハッシュ実装は単語の重なりしか見ないため距離が全体的に大きい。
+    実モデルの値を流用すると足切りが効かず、新規登録の導線が消える。
+    """
+    from kb.providers.gemini import DEFAULT_MAX_DISTANCE as GEMINI_MAX
+
+    assert GEMINI_MAX < HashingEmbeddingProvider().max_distance
+
+
+def test_hybrid_search_takes_the_threshold_from_the_embedder():
+    from kb.search import HybridSearch
+
+    embedder = HashingEmbeddingProvider(max_distance=0.33)
+    # repository は __init__ では触られない
+    assert HybridSearch(repository=None, embedder=embedder)._max_distance == 0.33
+
+
+def test_explicit_threshold_overrides_the_embedder():
+    from kb.search import HybridSearch
+
+    embedder = HashingEmbeddingProvider(max_distance=0.33)
+    search = HybridSearch(repository=None, embedder=embedder, max_distance=0.7)
+    assert search._max_distance == 0.7
+
+
+def test_none_still_means_no_cutoff():
+    """None は「provider に訊く」ではなく「足切りしない」。区別が要る。"""
+    from kb.search import HybridSearch
+
+    embedder = HashingEmbeddingProvider(max_distance=0.33)
+    search = HybridSearch(repository=None, embedder=embedder, max_distance=None)
+    assert search._max_distance is None
