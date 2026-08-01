@@ -62,6 +62,17 @@ INITIAL_SINCE = datetime(2000, 1, 1, tzinfo=timezone.utc)
 EPOCH = INITIAL_SINCE
 
 
+#: 1 件の知識を何回続けて取り込みに失敗したら隔離するか。
+#:
+#: **恒久的に失敗する知識が 1 件あると取り込み全体が止まる**のを防ぐための
+#: 上限。到達点は「取りこぼしが無い回」だけ進める作りなので、常に失敗する
+#: 知識があると到達点が永久に動かず、他の新しい知識も毎回取り直しになる。
+#:
+#: 一時的な障害（KB の不調、レート制限）は数回の再試行で復帰するので、
+#: それを跨げるだけの回数を取る。10 分間隔なら 5 回で約 50 分ぶん粘る。
+MAX_ITEM_ATTEMPTS = 5
+
+
 @dataclass
 class SyncReport:
     tenant_id: UUID
@@ -69,7 +80,14 @@ class SyncReport:
     ingested: list[str] = field(default_factory=list)
     notified: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
-    """(知識 ID, エラー内容)。"""
+    """(知識 ID, エラー内容)。**到達点を進めない**理由になる失敗。"""
+    quarantined: list[tuple[str, str]] = field(default_factory=list)
+    """(知識 ID, エラー内容)。失敗が続いたため見送った知識。
+
+    **これは到達点を止めない。** 直らないものを待ち続けるより、他の知識の
+    取り込みを進める方が損が小さい。KB 側で直されれば updated_since が再び
+    返すので、次の取り込みで自然に復帰する。
+    """
     aborted: str | None = None
     """取得そのものに失敗した場合の理由。"""
 
@@ -86,11 +104,13 @@ class SyncRunner:
         backend: KnowledgeBase,
         state: SyncStateRepository,
         dispatcher: NotificationDispatcher | None = None,
+        max_item_attempts: int = MAX_ITEM_ATTEMPTS,
     ) -> None:
         self._pipeline = pipeline
         self._backend = backend
         self._state = state
         self._dispatcher = dispatcher
+        self._max_item_attempts = max_item_attempts
 
     def sync(self, *, tenant_id: UUID, since: datetime | None = None) -> SyncReport:
         """更新分を取り込む。
@@ -118,8 +138,27 @@ class SyncRunner:
             try:
                 self._sync_one(tenant_id=tenant_id, knowledge=knowledge, report=report)
             except Exception as exc:  # 1 件の失敗で残りを止めない
-                logger.warning("知識の取り込みに失敗 id=%s: %s", knowledge.id, exc)
-                report.failed.append((knowledge.id, str(exc)))
+                attempts = self._state.record_item_failure(
+                    tenant_id=tenant_id, kb_issue_id=knowledge.id, error=str(exc)
+                )
+                if attempts >= self._max_item_attempts:
+                    # 何度やっても直らないものを待ち続けると、他の知識も
+                    # 取り込めなくなる。見送って到達点は進める
+                    logger.warning(
+                        "知識の取り込みを見送り（%d 回失敗） id=%s: %s",
+                        attempts,
+                        knowledge.id,
+                        exc,
+                    )
+                    report.quarantined.append((knowledge.id, str(exc)))
+                else:
+                    logger.warning(
+                        "知識の取り込みに失敗（%d 回目） id=%s: %s",
+                        attempts,
+                        knowledge.id,
+                        exc,
+                    )
+                    report.failed.append((knowledge.id, str(exc)))
 
         if report.failed:
             # 取りこぼした知識があるので到達点は進めない。次回やり直す。
@@ -130,6 +169,9 @@ class SyncRunner:
                 error=f"{len(report.failed)} 件の取り込みに失敗",
             )
         else:
+            # **見送った知識があっても到達点は進める。** 直らないものを待つと
+            # 取り込みが永久に止まる。見送りは sync_failures に残るので、
+            # 開発者画面から見える
             self._state.record_success(tenant_id=tenant_id, synced_at=started_at)
 
         return report
@@ -150,6 +192,9 @@ class SyncRunner:
             tenant_id=tenant_id, knowledge=knowledge, relations=relations
         )
         report.ingested.append(knowledge.id)
+        # 連続失敗の記録を消す。見送り済みの知識が KB 側で直された場合、
+        # ここを通って自然に復帰する
+        self._state.clear_item_failure(tenant_id=tenant_id, kb_issue_id=knowledge.id)
 
         if self._dispatcher is not None:
             result = self._dispatcher.dispatch(tenant_id=tenant_id, knowledge=knowledge)

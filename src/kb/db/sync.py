@@ -65,6 +65,17 @@ class SyncState:
     last_error: str | None
 
 
+@dataclass(frozen=True)
+class SyncFailure:
+    """取り込みに失敗し続けている知識。"""
+
+    kb_issue_id: str
+    attempts: int
+    last_error: str | None
+    first_failed_at: datetime
+    last_failed_at: datetime
+
+
 class SyncStateRepository:
     def __init__(self, conn: psycopg.Connection) -> None:
         self._conn = conn
@@ -101,3 +112,48 @@ class SyncStateRepository:
             "   last_run_at = now(), last_error = EXCLUDED.last_error",
             (tenant_id, error[:2000]),
         )
+
+    # ------------------------------------------------- 知識ごとの失敗回数
+
+    def record_item_failure(
+        self, *, tenant_id: UUID, kb_issue_id: str, error: str
+    ) -> int:
+        """1 件の失敗を数え、**通算の連続失敗回数**を返す。
+
+        呼び出し側はこの回数を見て、まだ再試行するか隔離するかを決める。
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sync_failures"
+                " (tenant_id, kb_issue_id, attempts, last_error)"
+                " VALUES (%s, %s, 1, %s)"
+                " ON CONFLICT (tenant_id, kb_issue_id) DO UPDATE SET"
+                "   attempts = sync_failures.attempts + 1,"
+                "   last_error = EXCLUDED.last_error,"
+                "   last_failed_at = now()"
+                " RETURNING attempts",
+                (tenant_id, kb_issue_id, error[:2000]),
+            )
+            return int(cur.fetchone()[0])
+
+    def clear_item_failure(self, *, tenant_id: UUID, kb_issue_id: str) -> None:
+        """取り込めたら記録を消す。**連続失敗回数なので途中で成功したら 0 に戻す。**
+
+        隔離済みの知識が KB 側で直された場合、ここを通って自然に復帰する。
+        """
+        self._conn.execute(
+            "DELETE FROM sync_failures WHERE tenant_id = %s AND kb_issue_id = %s",
+            (tenant_id, kb_issue_id),
+        )
+
+    def failures(self, *, tenant_id: UUID, at_least: int = 1) -> list[SyncFailure]:
+        """失敗中の知識を、失敗回数の多い順に返す。"""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT kb_issue_id, attempts, last_error, first_failed_at,"
+                "       last_failed_at"
+                " FROM sync_failures WHERE tenant_id = %s AND attempts >= %s"
+                " ORDER BY attempts DESC, last_failed_at DESC",
+                (tenant_id, at_least),
+            )
+            return [SyncFailure(*row) for row in cur.fetchall()]

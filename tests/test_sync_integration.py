@@ -72,6 +72,7 @@ def cleanup(repo, tenant_id):
     conn = repo._conn
     for table in (
         "sync_state",
+        "sync_failures",
         "knowledge_index",
         "notification_rules",
         "knowledge_label_state",
@@ -80,13 +81,26 @@ def cleanup(repo, tenant_id):
         conn.execute(f"DELETE FROM {table} WHERE tenant_id = %s", (tenant_id,))
 
 
-def build(repo, embedder, state, backend, dispatcher=None):
+def build(repo, embedder, state, backend, dispatcher=None, max_item_attempts=5):
     return SyncRunner(
         pipeline=IngestPipeline(repository=repo, embedder=embedder),
         backend=backend,
         state=state,
         dispatcher=dispatcher,
+        max_item_attempts=max_item_attempts,
     )
+
+
+def always_fails(runner, *, only=None, error="この知識は壊れている"):
+    """取り込みを失敗させる。`only` を指定するとその ID だけ失敗する。"""
+    original = runner._pipeline.ingest_knowledge
+
+    def patched(*, tenant_id, knowledge, relations=()):
+        if only is None or knowledge.id == only:
+            raise RuntimeError(error)
+        return original(tenant_id=tenant_id, knowledge=knowledge, relations=relations)
+
+    runner._pipeline.ingest_knowledge = patched
 
 
 # --------------------------------------------------------------- 基本の流れ
@@ -290,3 +304,105 @@ def test_empty_batch_still_advances_the_checkpoint(
     backend = FakeBackend(batch=[])
     build(repo, embedder, state, backend).sync(tenant_id=tenant_id)
     assert state.get(tenant_id=tenant_id).last_synced_at is not None
+
+
+# ------------------------------------------------- 直らない知識を隔離する
+
+
+def test_repeated_failure_is_eventually_quarantined(
+    repo, tenant_id, embedder, state, cleanup
+):
+    """**1 件の恒久的な失敗で取り込みが永久に止まらないこと。**
+
+    到達点は「取りこぼしが無い回」だけ進む。常に失敗する知識があると
+    到達点が動かず、他の新しい知識も毎回取り直しになる。
+    """
+    backend = FakeBackend(batch=[knowledge("bad")])
+    runner = build(repo, embedder, state, backend, max_item_attempts=3)
+    always_fails(runner)
+
+    # 1〜2 回目は再試行を選ぶ（一時的な障害かもしれない）
+    for _ in range(2):
+        report = runner.sync(tenant_id=tenant_id)
+        assert report.failed and not report.quarantined
+        assert state.get(tenant_id=tenant_id).last_synced_at is None
+
+    # 3 回目で見送りに切り替わり、到達点が進む
+    report = runner.sync(tenant_id=tenant_id)
+    assert report.failed == []
+    assert report.quarantined == [("bad", "この知識は壊れている")]
+    assert state.get(tenant_id=tenant_id).last_synced_at is not None
+
+
+def test_quarantine_does_not_block_other_knowledge(
+    repo, tenant_id, embedder, state, cleanup
+):
+    """壊れた 1 件があっても、他の知識は取り込まれ続ける。"""
+    backend = FakeBackend(batch=[knowledge("bad"), knowledge("good")])
+    runner = build(repo, embedder, state, backend, max_item_attempts=1)
+    always_fails(runner, only="bad")
+
+    report = runner.sync(tenant_id=tenant_id)
+
+    assert report.ingested == ["good"]
+    assert [i for i, _ in report.quarantined] == ["bad"]
+    assert state.get(tenant_id=tenant_id).last_synced_at is not None
+
+
+def test_success_clears_the_failure_count(repo, tenant_id, embedder, state, cleanup):
+    """**連続失敗の回数なので、途中で成功したら 0 に戻る。**
+
+    たまたま 2 回失敗しただけの知識が、後日 1 回失敗しただけで見送られる
+    ことがあってはいけない。
+    """
+    backend = FakeBackend(batch=[knowledge("a")])
+    runner = build(repo, embedder, state, backend, max_item_attempts=3)
+
+    always_fails(runner)
+    runner.sync(tenant_id=tenant_id)
+    runner.sync(tenant_id=tenant_id)
+    assert state.failures(tenant_id=tenant_id)[0].attempts == 2
+
+    # 取り込めるようになった
+    runner = build(repo, embedder, state, backend, max_item_attempts=3)
+    runner.sync(tenant_id=tenant_id)
+    assert state.failures(tenant_id=tenant_id) == []
+
+
+def test_quarantined_knowledge_recovers_when_fixed(
+    repo, tenant_id, embedder, state, cleanup
+):
+    """見送った知識も、KB 側で直れば次の取り込みで復帰する。"""
+    backend = FakeBackend(batch=[knowledge("bad")])
+    runner = build(repo, embedder, state, backend, max_item_attempts=1)
+    always_fails(runner)
+    assert runner.sync(tenant_id=tenant_id).quarantined
+
+    # 直った状態で、もう一度同じ知識が返ってくる
+    runner = build(repo, embedder, state, backend, max_item_attempts=1)
+    report = runner.sync(tenant_id=tenant_id)
+
+    assert report.ingested == ["bad"]
+    assert state.failures(tenant_id=tenant_id) == []
+
+
+def test_failures_are_visible_with_the_attempt_count(
+    repo, tenant_id, embedder, state, cleanup
+):
+    """**見送りは必ず見えるところに残す。**
+
+    取り込みが正常に進んでいるのに一部の知識だけ永久に入らない状態を、
+    誰も気づけないまま放置しないため。
+    """
+    backend = FakeBackend(batch=[knowledge("bad")])
+    runner = build(repo, embedder, state, backend, max_item_attempts=2)
+    always_fails(runner, error="変換できません")
+    runner.sync(tenant_id=tenant_id)
+    runner.sync(tenant_id=tenant_id)
+
+    failures = state.failures(tenant_id=tenant_id)
+    assert len(failures) == 1
+    assert failures[0].kb_issue_id == "bad"
+    assert failures[0].attempts == 2
+    assert "変換できません" in failures[0].last_error
+    assert failures[0].first_failed_at <= failures[0].last_failed_at
