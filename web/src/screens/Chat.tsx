@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import { Icon } from "../icons";
+import { Markdown } from "../markdown";
 import { api, ApiError } from "../api";
 import type {
   Conversation,
   Extracted,
+  Knowledge,
   Message,
   Notification,
   SearchHit,
@@ -18,10 +20,22 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 /** 検索が「なぜこれを出したか」を利用者に見せる。 */
-function Hit({ hit }: { hit: SearchHit }) {
+function Hit({
+  hit,
+  active,
+  onOpen,
+}: {
+  hit: SearchHit;
+  active: boolean;
+  onOpen: () => void;
+}) {
   return (
-    <div className="hit">
-      <div className="title">{hit.title || `#${hit.kb_issue_id}`}</div>
+    <div className={`hit ${active ? "active" : ""}`}>
+      {/* 見出しだけを押せるようにする。中の「開く」リンクを内側に持つので、
+          カード全体を button にすると入れ子になって不正な HTML になる */}
+      <button className="title" onClick={onOpen}>
+        {hit.title || `#${hit.kb_issue_id}`}
+      </button>
       <div className="meta">
         {hit.sources.map((s) => (
           <span key={s} className={`badge ${s}`}>
@@ -43,6 +57,89 @@ function Hit({ hit }: { hit: SearchHit }) {
   );
 }
 
+/** 選んだ知識の中身。**見せ方はこれから詰める部分**なので、描画はこの 1 つに
+ *  閉じ込めてある。ここだけ差し替えれば表示を変えられる。
+ *
+ *  会話履歴には残さない。知識は KB が正であって、会話のログに本文の写しを
+ *  溜めても増えるだけで得がない（読み返すときは常に KB から取り直す）。 */
+function KnowledgeView({
+  hit,
+  detail,
+  busy,
+  error,
+  onClose,
+}: {
+  hit: SearchHit;
+  detail: Knowledge | null;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  const url = detail?.url ?? hit.url;
+  return (
+    <article className="knowledge">
+      <header>
+        <h4>{detail?.title || hit.title || `#${hit.kb_issue_id}`}</h4>
+        <div className="knowledge-actions">
+          {url && (
+            <a href={url} target="_blank" rel="noreferrer">
+              KBで開く
+            </a>
+          )}
+          <button onClick={onClose}>
+            <Icon name="x" />
+            閉じる
+          </button>
+        </div>
+      </header>
+
+      {(detail?.labels ?? hit.labels).length > 0 && (
+        <div className="meta">
+          {(detail?.labels ?? hit.labels).map((l) => (
+            <span key={l} className="badge label">
+              {l}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {busy && (
+        <p className="muted knowledge-loading">
+          <span className="dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          中身を読み込んでいます…
+        </p>
+      )}
+      {error && <div className="notice">{error}</div>}
+
+      {detail && (
+        <>
+          <div className="knowledge-body">
+            {detail.body ? (
+              <Markdown text={detail.body} />
+            ) : (
+              <p className="muted">（本文なし）</p>
+            )}
+          </div>
+          {detail.comments.length > 0 && (
+            <section className="knowledge-comments">
+              <h5>やりとり（{detail.comments.length}件）</h5>
+              {detail.comments.map((c, i) => (
+                <div key={i} className="knowledge-comment">
+                  <Markdown text={c} />
+                </div>
+              ))}
+            </section>
+          )}
+        </>
+      )}
+    </article>
+  );
+}
+
 export function Chat({ identity }: { identity: Identity }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
@@ -60,6 +157,11 @@ export function Chat({ identity }: { identity: Identity }) {
    *  検索は 1 秒前後かかり、その間これが無いと入力欄が消えるだけで
    *  何も起きていないように見える。 */
   const [pending, setPending] = useState<string | null>(null);
+  /** 中身を開いている知識。会話とは別の一時的な表示で、履歴には残さない。 */
+  const [opened, setOpened] = useState<SearchHit | null>(null);
+  const [detail, setDetail] = useState<Knowledge | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
@@ -101,6 +203,29 @@ export function Chat({ identity }: { identity: Identity }) {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, pending]);
 
+  /** 知識の中身を開く。**本文は検索結果に入っていない**ので KB に取りに行く。 */
+  const openKnowledge = useCallback(
+    async (hit: SearchHit) => {
+      setOpened(hit);
+      setDetail(null);
+      setDetailError(null);
+      setDetailBusy(true);
+      try {
+        setDetail(await api.knowledge(identity.tenantId, hit.kb_issue_id));
+      } catch (e) {
+        // KB が落ちていても、一覧に出ていた題名と URL は出したままにする
+        setDetailError(
+          e instanceof ApiError
+            ? `本文を取得できませんでした: ${e.message}`
+            : String(e),
+        );
+      } finally {
+        setDetailBusy(false);
+      }
+    },
+    [identity],
+  );
+
   async function send() {
     const text = draft.trim();
     if (!text || busy) return;
@@ -109,6 +234,9 @@ export function Chat({ identity }: { identity: Identity }) {
     // 往復を待たずに自分の発言を出す。サーバーの内容で後から置き換わる
     setPending(text);
     setDraft("");
+    // 開いていた知識は閉じる。結果が入れ替わるので、出したままだと
+    // どの検索に対する中身なのか分からなくなる
+    setOpened(null);
     try {
       let conversationId = current;
       if (!conversationId) {
@@ -255,6 +383,7 @@ export function Chat({ identity }: { identity: Identity }) {
               setForm(null);
               setNote(null);
               setError(null);
+              setOpened(null);
             }}
             style={{ width: "100%", marginBottom: 8 }}
           >
@@ -265,7 +394,10 @@ export function Chat({ identity }: { identity: Identity }) {
             <button
               key={c.id}
               className={`conv ${c.id === current ? "active" : ""}`}
-              onClick={() => setCurrent(c.id)}
+              onClick={() => {
+                setCurrent(c.id);
+                setOpened(null);
+              }}
             >
               {c.title || "（無題）"}
             </button>
@@ -276,6 +408,19 @@ export function Chat({ identity }: { identity: Identity }) {
         </div>
 
         <div className="thread">
+          {/* 知識を開いている間は会話の代わりに中身を出す。会話は消えて
+              いないので、閉じれば元の位置に戻る */}
+          {opened ? (
+            <div className="messages">
+              <KnowledgeView
+                hit={opened}
+                detail={detail}
+                busy={detailBusy}
+                error={detailError}
+                onClose={() => setOpened(null)}
+              />
+            </div>
+          ) : (
           <div className="messages">
             {messages.map((m) => (
               <div key={m.id} className={`bubble ${m.role}`}>
@@ -300,6 +445,7 @@ export function Chat({ identity }: { identity: Identity }) {
             )}
             <div ref={endRef} />
           </div>
+          )}
           <div className="sources">
             <button
               onClick={() => fileRef.current?.click()}
@@ -404,7 +550,12 @@ export function Chat({ identity }: { identity: Identity }) {
           ) : (
             <>
               {hits.map((h) => (
-                <Hit key={h.kb_issue_id} hit={h} />
+                <Hit
+                  key={h.kb_issue_id}
+                  hit={h}
+                  active={opened?.kb_issue_id === h.kb_issue_id}
+                  onOpen={() => openKnowledge(h)}
+                />
               ))}
               {hits.length === 0 && (
                 <p className="muted">

@@ -53,6 +53,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* リンクの色を決めていなかったため、ブラウザ既定の青のままだった。
+   ダークモードでは背景に沈んで読めない。 */
+a {
+  color: var(--indigo);
+  text-decoration-color: var(--indigo-line);
+  text-underline-offset: 2px;
+}
+a:hover {
+  text-decoration-color: currentColor;
+}
+
 button {
   font: inherit;
   cursor: pointer;
@@ -425,6 +436,283 @@ code {
   }
 }
 
+/* 選んだ知識の中身。**見せ方を詰めていく部分** — ここと Chat.tsx の
+   KnowledgeView だけを触れば表示を変えられる。 */
+.knowledge {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--card);
+  padding: 16px 18px;
+}
+.knowledge > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.knowledge h4 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  /* min-width:0 が無いと、折り返した題名が縮まずに操作側へはみ出して重なる */
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.knowledge-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  font-size: 13px;
+}
+.knowledge .meta {
+  margin-top: 10px;
+}
+.knowledge-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+.knowledge-body {
+  margin-top: 14px;
+}
+
+/* Markdown の描画結果。段落内の改行は保つが、構造は要素で表す
+   （.md 全体に pre-wrap を掛けるとリストや見出しの前後に空行が残る） */
+.md {
+  font-size: 14px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+}
+.md h5,
+.md h6 {
+  margin: 22px 0 8px;
+  line-height: 1.5;
+  font-weight: 700;
+}
+.md .md-h1 {
+  font-size: 17px;
+}
+.md .md-h2 {
+  font-size: 15.5px;
+}
+.md .md-h3,
+.md .md-h4,
+.md .md-h5,
+.md .md-h6 {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.md ul,
+.md ol {
+  margin: 0 0 12px;
+  padding-left: 1.5em;
+}
+.md li {
+  margin-bottom: 4px;
+}
+.md li::marker {
+  color: var(--ink-faint);
+}
+.md code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+}
+.md pre {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+  overflow-x: auto;
+}
+/* コードブロックの中では枠を二重にしない */
+.md pre code {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.md blockquote {
+  margin: 0 0 12px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--rule-firm);
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+}
+.md hr {
+  margin: 18px 0;
+  border: none;
+  border-top: 1px solid var(--rule);
+}
+
+/* 入れ子のリストと表のツリー表示。
+   罫線は ::before（縦）と ::after（横）で引く。最後の子だけ縦線を
+   節の高さで止めることで、枝の終わりが見える。 */
+.md .md-tree,
+.md .md-tree ul,
+.md .md-tree ol {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+.md .md-tree ul,
+.md .md-tree ol {
+  padding-left: 14px;
+}
+.md .md-tree li {
+  position: relative;
+  padding-left: 18px;
+  margin-bottom: 0;
+}
+.md .md-tree li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-left: 1px solid var(--rule-firm);
+}
+/* 最後の子は、横線の位置までで縦線を止める */
+.md .md-tree li:last-child::before {
+  height: 0.95em;
+}
+.md .md-tree li::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.95em;
+  width: 12px;
+  border-top: 1px solid var(--rule-firm);
+}
+/* 番号付きは番号を出す（list-style を消しているため自前で振る）。
+   **最上位の ol は .md-tree そのもの**なので、子孫セレクタだけでは拾えない
+   ——これを落として一番上の番号が消えていた。 */
+.md ol.md-tree,
+.md .md-tree ol {
+  counter-reset: md-ol;
+}
+.md ol.md-tree > li,
+.md .md-tree ol > li {
+  counter-increment: md-ol;
+}
+.md ol.md-tree > li > .md-node::before,
+.md .md-tree ol > li > .md-node::before {
+  content: counter(md-ol) ". ";
+  color: var(--ink-faint);
+}
+
+/* 表をツリーに開いたときの列見出し */
+.md .md-cell-label {
+  color: var(--ink-faint);
+  margin-right: 6px;
+}
+.md .md-cell-label::after {
+  content: ":";
+}
+/* 表の 1 列目＝行の見出しなので、少し強く出す */
+.md .md-table > li > .md-node {
+  font-weight: 700;
+}
+
+/* 本文中の画像。原寸のまま出すと欄からはみ出すので必ず縮める。
+   height:auto が無いと、幅だけ縮んで縦横比が崩れる。 */
+.md-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 10px 0;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--ground);
+}
+/* 読み込めなかったとき。壊れた画像アイコンの代わりに、開ける導線を残す */
+.md-image-failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--rule-firm);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+.md-image-failed:hover {
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
+.knowledge-comments {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+.knowledge-comments h5 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-weight: 700;
+}
+.knowledge-comment {
+  font-size: 13.5px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+}
+.knowledge-comment .md {
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.knowledge-comment + .knowledge-comment {
+  margin-top: 8px;
+}
+
+/* 検索結果カード。題名を押すと中身が開く */
+.hit .title {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--ink);
+}
+.hit .title:hover {
+  color: var(--indigo);
+  text-decoration: underline;
+}
+.hit.active {
+  border-color: var(--indigo-line);
+  background: var(--indigo-soft);
+}
+.hit.active .title {
+  color: var(--indigo);
+}
+
 .hit-skeleton {
   border: 1px solid var(--rule);
   border-radius: 4px;
@@ -527,11 +815,6 @@ kbd {
   padding: 10px 12px;
   margin-bottom: 8px;
   background: var(--card);
-}
-.hit .title {
-  font-weight: 700;
-  font-size: 14px;
-  margin-bottom: 4px;
 }
 .hit .meta {
   display: flex;
