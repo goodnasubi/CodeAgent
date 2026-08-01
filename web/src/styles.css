@@ -535,3 +535,12 @@ kbd {
   color: var(--indigo);
   font-weight: 700;
 }
+
+/* 未送信の新しい会話。まだサーバーには存在しないので一覧には出ない。
+   選択中であることをボタン側で示す。 */
+.new-conv.active {
+  background: var(--indigo-soft);
+  border-color: var(--indigo-line);
+  color: var(--indigo);
+  font-weight: 700;
+}
