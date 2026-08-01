@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync and the resident scheduler that drives it, the HTTP API, and all four backend adapters. `web/` holds the React UI. Gemini and OpenAI are wired up for both embedding and image OCR (`kb.providers.gemini`, `kb.providers.openai`); Claude is still selectable in the UI but unimplemented. **The OpenAI provider has never run against the live API** — see the warning below before trusting it.
+Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync and the resident scheduler that drives it, the HTTP API, and all four backend adapters. `web/` holds the React UI. All three LLM/embedding providers are wired up and verified against their live APIs: Gemini and OpenAI for both embedding and image OCR, Claude for image OCR only (`kb.providers.{gemini,openai,claude}`).
 
 ```bash
 uv run python -m pytest
@@ -45,7 +45,18 @@ Two GitHub-specific traps, both confirmed against the live API: its issues endpo
 
 `HashingEmbeddingProvider` remains the default so the suite runs without a key. It is a bag-of-words hash, deliberately not a stub returning noise: texts sharing vocabulary land close together, which is what lets the end-to-end "find the similar document" test mean anything without a key. It does not model paraphrase, so never use it to judge retrieval quality.
 
-**Two real providers exist: Gemini and OpenAI** (`kb.providers.gemini` against `generativelanguage.googleapis.com` — Google AI Studio keys, not Vertex, so no GCP project or service account; `kb.providers.openai` against `api.openai.com`). Both are `httpx` rather than the vendor SDK, matching the four backend adapters: two endpoints do not justify a dependency. Per-tenant API keys live encrypted in `tenant_model_settings`, alongside the model selection.
+**Three real providers exist: Gemini, OpenAI, and Claude** (`kb.providers.gemini` against `generativelanguage.googleapis.com` — Google AI Studio keys, not Vertex, so no GCP project or service account; `kb.providers.openai` against `api.openai.com`; `kb.providers.claude` against the Anthropic API). Per-tenant API keys live encrypted in `tenant_model_settings`, alongside the model selection.
+
+**Claude has no embedding provider, and never will** — Anthropic does not offer an embeddings API. This is the reason the LLM and embedding dropdowns do not offer the same choices, and why `build_embedder` rejects `claude` with a distinct message rather than the generic "unsupported" one: it is a permanent absence, not an unimplemented feature. A tenant on Claude still needs Gemini or OpenAI for search.
+
+**Claude is also the one provider that uses the vendor SDK** (`anthropic`) rather than `httpx`. Gemini and OpenAI are hand-rolled because two endpoints don't justify a dependency; Claude departs from that deliberately — Anthropic documents the SDK as the expected path, and the SDK already handles the retry/backoff and typed-error taxonomy this code would otherwise reimplement. Don't "fix" the inconsistency by rewriting it onto `httpx`.
+
+Two Claude-specific traps, both pinned by tests:
+
+- **The response is not always `content[0].text`.** Models that think emit a `thinking` block first (observed on `claude-sonnet-5`), so the text must be selected by block type. Reading index 0 silently yields empty output on exactly the models someone would upgrade to.
+- **A refusal arrives as HTTP 200** with `stop_reason: "refusal"` and possibly empty content — check `stop_reason` before reading content, or a refused image looks like an image with no text in it. `stop_details` can be absent, so branch on `stop_reason` alone.
+
+`thinking` is deliberately never sent: whether it can be set, and whether disabling it is legal, varies by model (some reject an explicit disable). Leaving it to the model's default works everywhere, and `max_tokens` is set high enough that thinking plus transcription both fit.
 
 Three OpenAI-specific traps, all already handled:
 
@@ -162,7 +173,7 @@ Three constraints that shape it:
 
 File upload needs `python-multipart`. On the frontend, `request()` must *not* set `Content-Type` for `FormData` — writing it by hand drops the multipart boundary and the server cannot parse the body.
 
-Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption), `KB_SYNC_INTERVAL_SECONDS` (scheduler interval, default 600), `KB_SMTP_HOST`/`KB_SMTP_PORT`/`KB_SMTP_SENDER` (optional, enables the email notifier), `KB_GEMINI_API_KEY` (only for the live provider test — the app itself reads per-tenant keys from the DB). `.env.example` is the template; `.env` is gitignored and nothing loads it automatically, so `set -a; . ./.env; set +a` before commands that need it. A malformed interval raises at startup rather than falling back to the default — silently ignoring the config is how a "why isn't it polling every 2 minutes" hunt starts. The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
+Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption), `KB_SYNC_INTERVAL_SECONDS` (scheduler interval, default 600), `KB_SMTP_HOST`/`KB_SMTP_PORT`/`KB_SMTP_SENDER` (optional, enables the email notifier), `KB_GEMINI_API_KEY`/`KB_OPENAI_API_KEY`/`KB_ANTHROPIC_API_KEY` (only for the live provider tests — the app itself reads per-tenant keys from the DB). `.env.example` is the template; `.env` is gitignored and nothing loads it automatically, so `set -a; . ./.env; set +a` before commands that need it. A malformed interval raises at startup rather than falling back to the default — silently ignoring the config is how a "why isn't it polling every 2 minutes" hunt starts. The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
 
 `SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
 

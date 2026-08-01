@@ -11,6 +11,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "cryptography>=43",
     "python-multipart>=0.0.9",
+    "anthropic>=0.120.2",
 ]
 
 [project.optional-dependencies]
