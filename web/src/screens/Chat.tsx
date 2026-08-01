@@ -55,6 +55,10 @@ export function Chat({ identity }: { identity: Identity }) {
   const [registering, setRegistering] = useState(false);
   const [form, setForm] = useState<{ title: string; body: string } | null>(null);
   const [searched, setSearched] = useState(false);
+  /** 送信したがサーバーから返ってきていない発言。**先に画面へ出すために持つ。**
+   *  検索は 1 秒前後かかり、その間これが無いと入力欄が消えるだけで
+   *  何も起きていないように見える。 */
+  const [pending, setPending] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
@@ -92,15 +96,18 @@ export function Chat({ identity }: { identity: Identity }) {
 
   useEffect(() => {
     // 発言が無いうちは動かさない。空の状態で呼ぶとページごとスクロールする
-    if (messages.length === 0) return;
+    if (messages.length === 0 && pending === null) return;
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [messages]);
+  }, [messages, pending]);
 
   async function send() {
     const text = draft.trim();
     if (!text || busy) return;
     setBusy(true);
     setError(null);
+    // 往復を待たずに自分の発言を出す。サーバーの内容で後から置き換わる
+    setPending(text);
+    setDraft("");
     try {
       let conversationId = current;
       if (!conversationId) {
@@ -113,7 +120,6 @@ export function Chat({ identity }: { identity: Identity }) {
       }
 
       await api.addMessage(conversationId, "user", text);
-      setDraft("");
 
       const found = await api.search(identity.tenantId, text);
       setHits(found.results);
@@ -131,7 +137,10 @@ export function Chat({ identity }: { identity: Identity }) {
       await loadConversations();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
+      // 書いた文章を消したままにしない。入力中でなければ入力欄に戻す
+      setDraft((d) => d || text);
     } finally {
+      setPending(null);
       setBusy(false);
     }
   }
@@ -263,7 +272,20 @@ export function Chat({ identity }: { identity: Identity }) {
                 {m.content}
               </div>
             ))}
-            {messages.length === 0 && (
+            {pending !== null && (
+              <>
+                <div className="bubble user">{pending}</div>
+                <div className="bubble searching" role="status" aria-live="polite">
+                  <span className="dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  似た記録を探しています…
+                </div>
+              </>
+            )}
+            {messages.length === 0 && pending === null && (
               <p className="muted">下の欄に質問を書いてください。</p>
             )}
             <div ref={endRef} />
@@ -314,13 +336,21 @@ export function Chat({ identity }: { identity: Identity }) {
               onChange={(e) => setDraft(e.target.value)}
               onPaste={onPaste}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+                if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+                // 抑えないと、送信と同時に改行も入る。send() が空文字や
+                // 送信中で弾いたときは、その改行だけが残ってしまう
+                e.preventDefault();
+                send();
               }}
             />
             <button className="primary" onClick={send} disabled={busy || !draft.trim()}>
               {busy ? "検索中…" : "送信"}
             </button>
           </div>
+          <p className="muted composer-hint">
+            <kbd>Ctrl</kbd> + <kbd>Enter</kbd> で送信します（Mac は <kbd>⌘</kbd>{" "}
+            + <kbd>Enter</kbd>）。<kbd>Enter</kbd> だけなら改行です。
+          </p>
         </div>
 
         <div className="side">
@@ -341,16 +371,29 @@ export function Chat({ identity }: { identity: Identity }) {
           )}
 
           <h3>見つかった知識</h3>
-          {hits.map((h) => (
-            <Hit key={h.kb_issue_id} hit={h} />
-          ))}
-
-          {hits.length === 0 && (
-            <p className="muted">
-              {searched
-                ? "見つかりませんでした。新しい知識として登録できます。"
-                : "まだ検索していません"}
-            </p>
+          {/* 検索中は前回の結果を出したままにしない。もう古い */}
+          {busy ? (
+            <div aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="hit-skeleton">
+                  <span className="line" style={{ width: "72%" }} />
+                  <span className="line" style={{ width: "44%" }} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              {hits.map((h) => (
+                <Hit key={h.kb_issue_id} hit={h} />
+              ))}
+              {hits.length === 0 && (
+                <p className="muted">
+                  {searched
+                    ? "見つかりませんでした。新しい知識として登録できます。"
+                    : "まだ検索していません"}
+                </p>
+              )}
+            </>
           )}
 
           {/* 見つかった場合でも登録したいことがあるので、常に出す */}
