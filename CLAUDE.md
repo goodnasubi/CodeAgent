@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync and the resident scheduler that drives it, the HTTP API, and all four backend adapters. `web/` holds the React UI. Gemini is wired up for both embedding and image OCR (`kb.providers.gemini`); Claude and OpenAI are still selectable in the UI but unimplemented.
+Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hybrid search (similarity + keyword + relations, merged by RRF), notifications, cron-style sync and the resident scheduler that drives it, the HTTP API, and all four backend adapters. `web/` holds the React UI. Gemini and OpenAI are wired up for both embedding and image OCR (`kb.providers.gemini`, `kb.providers.openai`); Claude is still selectable in the UI but unimplemented. **The OpenAI provider has never run against the live API** — see the warning below before trusting it.
 
 ```bash
 uv run python -m pytest
@@ -45,7 +45,15 @@ Two GitHub-specific traps, both confirmed against the live API: its issues endpo
 
 `HashingEmbeddingProvider` remains the default so the suite runs without a key. It is a bag-of-words hash, deliberately not a stub returning noise: texts sharing vocabulary land close together, which is what lets the end-to-end "find the similar document" test mean anything without a key. It does not model paraphrase, so never use it to judge retrieval quality.
 
-**Gemini is the one real provider implemented** (`kb.providers.gemini`, Google AI Studio API keys against `generativelanguage.googleapis.com` — not Vertex, so no GCP project or service account). It is `httpx` rather than the `google-genai` SDK, matching the four backend adapters: two endpoints do not justify a dependency. Per-tenant API keys live encrypted in `tenant_model_settings`, alongside the model selection.
+**Two real providers exist: Gemini and OpenAI** (`kb.providers.gemini` against `generativelanguage.googleapis.com` — Google AI Studio keys, not Vertex, so no GCP project or service account; `kb.providers.openai` against `api.openai.com`). Both are `httpx` rather than the vendor SDK, matching the four backend adapters: two endpoints do not justify a dependency. Per-tenant API keys live encrypted in `tenant_model_settings`, alongside the model selection.
+
+Three OpenAI-specific traps, all already handled:
+
+- **`/embeddings` does not promise to return `data` in input order.** Each element carries an `index`; the provider reorders by it. Getting this wrong stores one knowledge's vector under another's ID — silently, and only visible as bad search results much later. `test_response_order_is_not_trusted` pins it.
+- **429 means two different things.** A real rate limit, and `insufficient_quota` (no credits) — which is *not* transient. Telling someone to "wait and retry" when they need to buy credits sends them into an unbounded wait, so the provider branches on `error.type`. The live test skips (rather than fails) on the credit case, since billing state is not a code defect, but it says so loudly in the skip reason.
+- **Its distances run much higher than Gemini's**, so the `max_distance` values are nowhere near each other (0.60 vs 0.40) despite both being 1,536-dimensional. Gemini's number applied to OpenAI drops 14 of 17 correct answers.
+
+`gpt-5-mini` is the OCR default: correct on the test image, and mini-tier matters because this runs per uploaded image. It is slow though — 7.2s median versus 1.8s for `gpt-5.2` (both verified). The model is per-tenant configurable if that latency bites.
 
 Three things it enforces that would otherwise fail late:
 
@@ -107,8 +115,13 @@ Measured values, both by the same method — short query against full knowledge 
 |---|---|---|---|
 | `HashingEmbeddingProvider` | 0.85 | 0.46–0.65 | 0.88–1.00 |
 | `gemini-embedding-001` (1,536d) | **0.40** | max 0.372 | min 0.401 |
+| `text-embedding-3-small` (1,536d) | **0.60** | max 0.744 | min 0.550 |
 
 For Gemini the usable band is narrow: 0.45 lets queries that match nothing start returning results (killing the register-new path), 0.35 starts dropping correct answers. Only 0.40 satisfies both. Unrelated *pairs* leaking in at 0.40 (4 of 55) is accepted — they rank below the correct hit and RRF orders the output; what must hold is that a query matching nothing comes back empty.
+
+**Score thresholds by query, not by pair.** The question is whether a question that matches nothing comes back empty — not how many document-query pairs fall under the line. The two metrics disagree: for OpenAI, 0.62 and 0.60 retain identical recall, but per-query leakage differs (2/12 vs 1/12), which is the whole argument for picking 0.60.
+
+**And use enough no-match queries.** OpenAI's threshold was first set to 0.62 off three of them, whose nearest-neighbour floor looked like 0.669. Widening to twelve dropped that floor to 0.550 and moved the answer. A gap in the distribution usually means a small sample, not a real gap.
 
 **Do not tune any of this against `HashingEmbeddingProvider`** — it compares vocabulary overlap, not meaning, so its distances run high and mean something different. `tests/test_providers_gemini_live.py` asserts the separation against the live API, so model drift breaks the test rather than silently breaking search. If it fails, re-measure the distribution before touching the constant.
 

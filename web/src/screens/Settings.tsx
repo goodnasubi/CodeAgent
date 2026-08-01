@@ -25,6 +25,18 @@ const CHANNELS = [
   { value: "email", label: "メール" },
 ];
 
+// モデル名を空欄にしたときサーバーが使う既定。**表示のためだけの写し**で、
+// 実際に効くのは kb.providers.* の DEFAULT_*_MODEL。あちらを変えたらここも直す。
+const DEFAULT_LLM_MODEL: Record<string, string> = {
+  gemini: "gemini-3.6-flash",
+  openai: "gpt-5-mini",
+};
+const DEFAULT_EMBEDDING_MODEL: Record<string, string> = {
+  gemini: "gemini-embedding-001",
+  openai: "text-embedding-3-small",
+  hashing: "hashing-dev",
+};
+
 export function Settings({ identity }: { identity: Identity }) {
   const [kb, setKb] = useState<KbConnection | null>(null);
   const [kbType, setKbType] = useState<KbType>("github");
@@ -209,8 +221,8 @@ export function Settings({ identity }: { identity: Identity }) {
                   }
                 >
                   <option value="gemini">Gemini</option>
+                  <option value="openai">OpenAI</option>
                   <option value="claude">Claude API（未対応）</option>
-                  <option value="openai">GPT-5.x（未対応）</option>
                 </select>
               </div>
               <div className="field">
@@ -218,7 +230,7 @@ export function Settings({ identity }: { identity: Identity }) {
                 <input
                   id="llm-model"
                   value={models.llm_model}
-                  placeholder="空欄なら既定（gemini-3.6-flash）"
+                  placeholder={`空欄なら既定（${DEFAULT_LLM_MODEL[models.llm_provider] ?? "—"}）`}
                   onChange={(e) =>
                     setModels({ ...models, llm_model: e.target.value })
                   }
@@ -246,6 +258,7 @@ export function Settings({ identity }: { identity: Identity }) {
                   }
                 >
                   <option value="gemini">Gemini</option>
+                  <option value="openai">OpenAI</option>
                   <option value="hashing">開発用（意味は捉えません）</option>
                 </select>
               </div>
@@ -254,7 +267,7 @@ export function Settings({ identity }: { identity: Identity }) {
                 <input
                   id="emb"
                   value={models.embedding_model}
-                  placeholder="空欄なら既定（gemini-embedding-001）"
+                  placeholder={`空欄なら既定（${DEFAULT_EMBEDDING_MODEL[models.embedding_provider] ?? "—"}）`}
                   onChange={(e) =>
                     setModels({ ...models, embedding_model: e.target.value })
                   }

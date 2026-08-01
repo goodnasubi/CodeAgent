@@ -27,8 +27,9 @@ from .notifications import (
     Notifier,
     SlackNotifier,
 )
-from .providers import gemini
+from .providers import gemini, openai
 from .providers.gemini import GeminiEmbeddingProvider, GeminiLlmClient
+from .providers.openai import OpenAiEmbeddingProvider, OpenAiLlmClient
 from .sync import SyncRunner
 from .tenants import (
     KIND_EMBEDDING,
@@ -122,6 +123,15 @@ def build_embedder(
             dimensions=settings.embedding_dim,
         )
 
+    if settings.embedding_provider == "openai":
+        if not api_key:
+            raise ProviderNotConfigured("OpenAI の API キーが設定されていません")
+        return OpenAiEmbeddingProvider(
+            api_key=api_key,
+            model=settings.embedding_model or openai.DEFAULT_EMBEDDING_MODEL,
+            dimensions=settings.embedding_dim,
+        )
+
     raise UnknownBackend(
         f"embedding プロバイダ '{settings.embedding_provider}' は未対応です"
     )
@@ -133,9 +143,15 @@ def build_llm(settings: ModelSettings, *, api_key: str | None = None) -> LlmClie
     **未設定なら None を返す**（例外にしない）。LLM を使うのは画像の
     文字起こしだけで、設定していないテナントでも他の機能は動くため。
     """
-    if settings.llm_provider == "gemini" and api_key:
+    if not api_key:
+        return None
+    if settings.llm_provider == "gemini":
         return GeminiLlmClient(
             api_key=api_key, model=settings.llm_model or gemini.DEFAULT_LLM_MODEL
+        )
+    if settings.llm_provider == "openai":
+        return OpenAiLlmClient(
+            api_key=api_key, model=settings.llm_model or openai.DEFAULT_LLM_MODEL
         )
     return None
 
