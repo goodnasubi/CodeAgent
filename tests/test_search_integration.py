@@ -283,3 +283,51 @@ def test_no_results_reports_why(repo, tenant_id, embedder, seeded):
         tenant_id=tenant_id, query=UNRELATED_QUERY
     )
     assert response.diagnostics.skipped[SIGNAL_VECTOR] == "十分に近い知識が無い"
+
+
+# ------------------------------- 開発用 embedding で検索したことを必ず伝える
+
+
+def test_development_embedding_is_reported(repo, tenant_id, embedder, seeded):
+    response = run(repo, tenant_id, embedder)
+    assert response.results, "前提として結果が返っていること"
+    assert response.diagnostics.development_embedding is True
+
+
+def test_development_embedding_is_reported_even_with_no_results(
+    repo, tenant_id, embedder, seeded
+):
+    """**0 件のときこそ要る。**
+
+    「見つからなかった」のか「そもそも意味を見ていない」のかは、利用者に
+    区別できない。ここが落ちると、開発用のまま「知識が無い」と誤解した
+    まま新しい知識を登録し続けることになる。
+    """
+    response = HybridSearch(repository=repo, embedder=embedder).search(
+        tenant_id=tenant_id, query=UNRELATED_QUERY
+    )
+    assert response.results == []
+    assert response.diagnostics.development_embedding is True
+
+
+def test_development_embedding_is_reported_for_an_empty_query(
+    repo, tenant_id, embedder, seeded
+):
+    response = HybridSearch(repository=repo, embedder=embedder).search(
+        tenant_id=tenant_id, query="   "
+    )
+    assert response.diagnostics.development_embedding is True
+
+
+def test_real_provider_raises_no_warning(repo, tenant_id, seeded):
+    """告知は開発用のときだけ。常に出ると読み飛ばされる。"""
+    from kb.providers.gemini import GeminiEmbeddingProvider
+
+    class _Stub(GeminiEmbeddingProvider):
+        def embed(self, texts):  # API を呼ばずに済ませる
+            return [[0.0] * (self.dimensions - 1) + [1.0] for _ in texts]
+
+    response = HybridSearch(
+        repository=repo, embedder=_Stub(api_key="x", dimensions=768)
+    ).search(tenant_id=tenant_id, query=QUERY)
+    assert response.diagnostics.development_embedding is False

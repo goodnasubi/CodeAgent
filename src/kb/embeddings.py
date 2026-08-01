@@ -37,6 +37,20 @@ class EmbeddingProvider(Protocol):
         永久に到達できなくなる**。
         """
 
+    @property
+    def is_development(self) -> bool:
+        """検索結果に意味がないことを利用者に伝えるべきプロバイダか。
+
+        **`max_distance` と同じく、プロバイダ自身が申告する。** 呼び出し側が
+        プロバイダ名を見て判定すると、判定を書いた場所すべてが新しい開発用
+        実装を知らないままになる。
+
+        これが要るのは、テナントの既定値が開発用ハッシュ実装だからである。
+        鍵を設定しないまま使い始めても検索は動いてしまい、それらしい件数の
+        結果まで返る。**壊れて見えないのに結果が無意味**という、最も気づき
+        にくい状態なので、検索するたびに画面へ出す。
+        """
+
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """テキスト列をベクトル化する。入力と同じ順序・同じ長さで返す。"""
 
@@ -91,6 +105,10 @@ class HashingEmbeddingProvider:
     @property
     def max_distance(self) -> float:
         return self._max_distance
+
+    @property
+    def is_development(self) -> bool:
+        return True
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [self._embed_one(t) for t in texts]

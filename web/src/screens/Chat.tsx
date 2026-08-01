@@ -147,6 +147,11 @@ export function Chat({ identity }: { identity: Identity }) {
   const [draft, setDraft] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [skipped, setSkipped] = useState<Record<string, string>>({});
+  /** 開発用の embedding で検索したか。**画面に出し続ける必要がある。**
+   *  テナントの既定がハッシュ実装なので、鍵を設定しないまま使い始めても
+   *  検索は動き、件数まで返る。壊れて見えないのに結果が無意味という、
+   *  最も気づきにくい状態なので、検索するたびにここへ出す。 */
+  const [devEmbedding, setDevEmbedding] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,6 +258,7 @@ export function Chat({ identity }: { identity: Identity }) {
       const found = await api.search(identity.tenantId, text);
       setHits(found.results);
       setSkipped(found.skipped);
+      setDevEmbedding(found.development_embedding);
       setSearched(true);
 
       const reply = found.results.length
@@ -537,6 +543,16 @@ export function Chat({ identity }: { identity: Identity }) {
             <Icon name="search" />
             見つかった知識
           </h3>
+          {/* 開発用 embedding のときは、結果があってもなくても必ず出す。
+              「見つからなかった」のか「意味を見ていない」のかは、これが
+              無いと利用者には区別がつかない */}
+          {devEmbedding && (
+            <div className="notice" style={{ marginTop: 8 }}>
+              <strong>開発用の embedding で検索しています。</strong>
+              語の重なりだけを見ているため、言い回しの違う知識は見つかりません。
+              管理設定画面で embedding のプロバイダと API キーを設定してください。
+            </div>
+          )}
           {/* 検索中は前回の結果を出したままにしない。もう古い */}
           {busy ? (
             <div aria-hidden="true">

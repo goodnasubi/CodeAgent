@@ -157,6 +157,13 @@ class SearchOut(BaseModel):
     results: list[SearchHitOut]
     used: list[str]
     skipped: dict[str, str]
+    development_embedding: bool = False
+    """開発用の embedding で検索した。画面に出して利用者に知らせるためのもの。
+
+    テナントの既定がハッシュ実装なので、鍵を設定しないまま使い始めても
+    検索は動き、それらしい件数まで返る。**結果が意味を持たないことは
+    画面からしか分からない。**
+    """
 
 
 class UrlIn(BaseModel):
@@ -481,6 +488,7 @@ def create_app() -> FastAPI:
             ],
             used=list(response.diagnostics.used),
             skipped=dict(response.diagnostics.skipped),
+            development_embedding=response.diagnostics.development_embedding,
         )
 
     # ------------------------------------------------------------- 知識

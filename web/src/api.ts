@@ -69,6 +69,8 @@ export interface SearchResponse {
   results: SearchHit[];
   used: string[];
   skipped: Record<string, string>;
+  /** 開発用の embedding で検索した。**結果に意味がない**ことを画面に出す。 */
+  development_embedding: boolean;
 }
 
 export interface Notification {
