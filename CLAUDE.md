@@ -163,6 +163,18 @@ Search results are enriched from `knowledge_index`, a per-knowledge metadata tab
 
 `GET /kb` also reports `supports_keyword_search` / `supports_relations` so the settings screen can tell the operator which searches their backend cannot do, rather than leaving them wondering why results look thin.
 
+**Clicking a search hit opens the knowledge in the middle column, and that view is deliberately not part of the conversation.** Search results carry no body text — only `knowledge_index` metadata — so opening one fetches from the KB (`GET /knowledge/{id}`, a round trip that takes about a second and can fail; the view keeps the title, labels, and KB link when it does). The fetched body is never written into the conversation: the KB is the source of truth, so a copy in the chat log would just be stale duplication, and re-reading always re-fetches. Switching conversations or running a new search closes it.
+
+**The Markdown renderer in `web/src/markdown.tsx` is hand-written, and should stay that way.** It covers what Issue bodies and LLM transcription actually produce — headings, lists, code, quotes, rules, bold, links, images. Three decisions in it are load-bearing:
+
+- **It builds React elements, never HTML strings.** Bodies are external input and include generated text; constructing elements means React does the escaping and there is no `innerHTML` path to abuse. Link and image URLs are restricted to `http`/`https`.
+- **Italics are not supported.** `_` and `*` spans wreck `UNDO_RETENTION` and `SELECT * FROM …`, which is exactly the content this KB holds. The false-positive cost beats the feature.
+- **Nested lists and tables render as trees, flat lists don't.** The middle column is narrow enough that a real table's columns collapse past three or four; a tree puts the first cell as the node and the rest as `header: value` children, so width stops mattering. Nesting depth is read from the actual leading-space count — Markdown accepts 2 or 4 and writers mix them — and a `|` line only becomes a table when the next line is a separator row, or ordinary prose containing a pipe turns into one.
+
+Images are fetched **by the browser, directly from the KB** — unlike the body, they carry no app token, so the viewer needs their own access. A failed load degrades to a link rather than a broken-image icon, which covers every cause (no permission, deleted attachment, blocked egress) without having to tell them apart. Displaying private-repo attachments reliably would need the API to proxy them with the tenant token, and that endpoint would need SSRF defenses before it could ship.
+
+Frontend tests are `npm test` in `web/` (vitest). `markdown.tsx` is the only thing covered so far and it is the piece that most needs it — a hand-written parser whose regressions are silent. Rendering is asserted by turning components into HTML strings with `renderToStaticMarkup`, so there is no testing-library dependency; `jsdom` is configured only because `location` is needed to resolve relative URLs.
+
 **Files and URLs enter through `POST /extract/file` and `/extract/url`, which convert and return text without writing anywhere.** That shape is deliberate: the same extracted text feeds *both* the search that runs first and the registration that happens only if nothing was found, so extraction cannot be folded into either one. The UI drops the result into the message box rather than holding it hidden, so the operator can see and edit what will actually be searched and stored.
 
 Three constraints that shape it:
@@ -173,7 +185,7 @@ Three constraints that shape it:
 
 File upload needs `python-multipart`. On the frontend, `request()` must *not* set `Content-Type` for `FormData` — writing it by hand drops the multipart boundary and the server cannot parse the body.
 
-Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption), `KB_SYNC_INTERVAL_SECONDS` (scheduler interval, default 600), `KB_SMTP_HOST`/`KB_SMTP_PORT`/`KB_SMTP_SENDER` (optional, enables the email notifier), `KB_GEMINI_API_KEY`/`KB_OPENAI_API_KEY`/`KB_ANTHROPIC_API_KEY` (only for the live provider tests — the app itself reads per-tenant keys from the DB). `.env.example` is the template; `.env` is gitignored and nothing loads it automatically, so `set -a; . ./.env; set +a` before commands that need it. A malformed interval raises at startup rather than falling back to the default — silently ignoring the config is how a "why isn't it polling every 2 minutes" hunt starts. The dev frontend needs `npm install` in `web/`. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
+Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encryption), `KB_SYNC_INTERVAL_SECONDS` (scheduler interval, default 600), `KB_SMTP_HOST`/`KB_SMTP_PORT`/`KB_SMTP_SENDER` (optional, enables the email notifier), `KB_GEMINI_API_KEY`/`KB_OPENAI_API_KEY`/`KB_ANTHROPIC_API_KEY` (only for the live provider tests — the app itself reads per-tenant keys from the DB). `.env.example` is the template; `.env` is gitignored and nothing loads it automatically, so `set -a; . ./.env; set +a` before commands that need it. A malformed interval raises at startup rather than falling back to the default — silently ignoring the config is how a "why isn't it polling every 2 minutes" hunt starts. The dev frontend needs `npm install` in `web/`; `npm test` there runs the vitest suite. `package.json` used to override `rollup` to `@rollup/wasm-node` because Ubuntu 20.04's glibc 2.31 could not run rollup's native binary; the environment is Ubuntu 24.04 (glibc 2.39) now, so the override is gone. Restore it if this ever has to build on an older glibc.
 
 `SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
 
@@ -209,7 +221,7 @@ Detecting "a label was applied" needs the previous labels, so `knowledge_label_s
 
 **Browser storage**: localStorage holds account/session identity and a conversation-history *cache* only. The DB is authoritative for history so chats resume across devices. Credentials never reach the browser.
 
-**Four UI surfaces**: account management (identity switching, read-only tenant display, minimal profile — no credential handling), chat (Claude-style, accepts pasted content, shows knowledge list and in-app notifications), admin settings (KB selection, LLM selection, label→notification mapping), developer screen (debugging/maintenance, tenant provisioning).
+**Four UI surfaces**: account management (identity switching, read-only tenant display, minimal profile — no credential handling), chat (Claude-style, accepts pasted content, shows knowledge list and in-app notifications, and opens a hit's full content in place of the thread), admin settings (KB selection, LLM selection, label→notification mapping), developer screen (debugging/maintenance, tenant provisioning).
 
 ## Still open
 
