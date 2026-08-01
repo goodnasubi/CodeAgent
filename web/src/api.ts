@@ -55,6 +55,16 @@ export interface SearchHit {
   labels: string[];
 }
 
+/** 知識の中身。**検索結果とは別物** — こちらは KB から都度取ってくる。 */
+export interface Knowledge {
+  id: string;
+  title: string;
+  body: string;
+  url: string | null;
+  labels: string[];
+  comments: string[];
+}
+
 export interface SearchResponse {
   results: SearchHit[];
   used: string[];
@@ -204,6 +214,10 @@ export const api = {
       `/api/tenants/${tenantId}/knowledge`,
       { method: "POST", ...json({ title, body, labels }) },
     ),
+  // 検索結果の一覧は knowledge_index の写しだが、本文は持っていない。
+  // 中身を見るときだけ KB に取りに行く（＝ネットワーク越しで、失敗しうる）
+  knowledge: (tenantId: string, knowledgeId: string) =>
+    request<Knowledge>(`/api/tenants/${tenantId}/knowledge/${knowledgeId}`),
   append: (tenantId: string, knowledgeId: string, text: string) =>
     request<{ ok: boolean }>(
       `/api/tenants/${tenantId}/knowledge/${knowledgeId}/append`,
