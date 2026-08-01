@@ -109,3 +109,20 @@ def test_none_still_means_no_cutoff():
     embedder = HashingEmbeddingProvider(max_distance=0.33)
     search = HybridSearch(repository=None, embedder=embedder, max_distance=None)
     assert search._max_distance is None
+
+
+# ------------------------------------- 開発用かどうかもプロバイダが申告する
+
+
+def test_hashing_provider_declares_itself_as_development():
+    """既定のテナントはこれを使う。**黙って使われるのが一番まずい。**"""
+    assert HashingEmbeddingProvider().is_development is True
+
+
+def test_real_providers_are_not_development():
+    """実プロバイダで告知が出ると、告知そのものが無視されるようになる。"""
+    from kb.providers.gemini import GeminiEmbeddingProvider
+    from kb.providers.openai import OpenAiEmbeddingProvider
+
+    assert GeminiEmbeddingProvider(api_key="x").is_development is False
+    assert OpenAiEmbeddingProvider(api_key="x").is_development is False

@@ -246,6 +246,10 @@ class OpenAiEmbeddingProvider(_OpenAiApi):
     def max_distance(self) -> float:
         return self._max_distance
 
+    @property
+    def is_development(self) -> bool:
+        return False
+
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """入力と同じ順序・同じ長さで返す。
 

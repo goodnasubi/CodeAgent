@@ -207,6 +207,16 @@ def test_search_reports_which_signals_were_skipped(client, tenant):
     assert "keyword" in body["skipped"]
 
 
+def test_search_tells_the_browser_it_used_a_development_embedding(client, tenant):
+    """新しいテナントの既定は開発用ハッシュ実装。**画面でしか気づけない。**
+
+    鍵を設定しないままでも検索は 200 で返り、件数まで出る。この項目が
+    無いと、意味を見ていない結果を正しい検索結果として読むことになる。
+    """
+    body = client.post(f"/api/tenants/{tenant}/search", json={"query": "何か"}).json()
+    assert body["development_embedding"] is True
+
+
 def test_registering_without_a_kb_is_rejected(client, tenant):
     """知識の正は KB 側。設定が無ければ登録は成立しない。"""
     response = client.post(

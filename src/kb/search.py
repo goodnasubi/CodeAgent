@@ -68,6 +68,12 @@ class SearchDiagnostics:
 
     used: tuple[str, ...]
     skipped: Mapping[str, str]
+    development_embedding: bool = False
+    """開発用の embedding で検索した（＝結果に意味がない）。
+
+    **0 件のときも含め、検索したなら必ず載せる。** 「何も見つからなかった」
+    のか「そもそも意味を見ていない」のかは、利用者には見分けがつかない。
+    """
 
 
 @dataclass(frozen=True)
@@ -127,7 +133,7 @@ class HybridSearch:
             overfetch: 類似度検索でチャンク単位に取る件数。
         """
         if not query.strip():
-            return SearchResponse([], SearchDiagnostics((), {"query": "空のクエリ"}))
+            return SearchResponse([], self._diagnostics((), {"query": "空のクエリ"}))
         candidates = candidates_per_signal
 
         lists: dict[str, list[str]] = {}
@@ -191,7 +197,7 @@ class HybridSearch:
                 skipped[SIGNAL_GRAPH] = "つながりが無い"
 
         if not lists:
-            return SearchResponse([], SearchDiagnostics((), skipped))
+            return SearchResponse([], self._diagnostics((), skipped))
 
         fused = reciprocal_rank_fusion(
             lists, k=self._k, weights=self._weights, limit=limit
@@ -215,6 +221,18 @@ class HybridSearch:
                 )
             )
 
-        return SearchResponse(
-            results, SearchDiagnostics(tuple(lists), skipped)
+        return SearchResponse(results, self._diagnostics(tuple(lists), skipped))
+
+    def _diagnostics(
+        self, used: tuple[str, ...], skipped: Mapping[str, str]
+    ) -> SearchDiagnostics:
+        """どの経路で返るときも同じ診断を付ける。
+
+        早期 return が 3 つあり、うち 2 つは「見つからなかった」経路。
+        開発用 embedding の告知はそこでこそ要るので、組み立てを 1 箇所に寄せる。
+        """
+        return SearchDiagnostics(
+            used=used,
+            skipped=skipped,
+            development_embedding=self._embedder.is_development,
         )
