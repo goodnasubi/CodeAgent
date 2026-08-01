@@ -239,13 +239,18 @@ export function Chat({ identity }: { identity: Identity }) {
         <div className="side">
           <h3>会話</h3>
           <button
-            onClick={async () => {
-              const created = await api.createConversation(
-                identity.tenantId,
-                identity.accountId,
-              );
-              setCurrent(created.id);
-              await loadConversations();
+            className={`new-conv ${current === null ? "active" : ""}`}
+            onClick={() => {
+              // **サーバーには作らない。** 会話は最初の発言のときに send() が
+              // 作る。ここで先に作ると、題名は最初の発言から付けるため、
+              // 一度も発言しなかった会話が「（無題）」のまま履歴に残る。
+              setCurrent(null);
+              setHits([]);
+              setSkipped({});
+              setSearched(false);
+              setForm(null);
+              setNote(null);
+              setError(null);
             }}
             style={{ width: "100%", marginBottom: 8 }}
           >
