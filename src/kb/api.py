@@ -39,7 +39,7 @@ from .factory import (
 )
 from .ingest import IngestPipeline
 from .search import HybridSearch
-from .sync import interval_from_env
+from .sync import MAX_ITEM_ATTEMPTS, interval_from_env
 from .tenants import (
     KIND_EMBEDDING,
     KIND_LLM,
@@ -295,25 +295,34 @@ def create_app() -> FastAPI:
             "ingested": report.ingested,
             "notified": report.notified,
             "failed": [{"id": i, "error": e} for i, e in report.failed],
+            "quarantined": [{"id": i, "error": e} for i, e in report.quarantined],
             "aborted": report.aborted,
         }
 
     @app.get("/api/admin/tenants/{tenant_id}/sync", tags=["developer"])
     def sync_status(tenant_id: UUID, conn: psycopg.Connection = Depends(get_conn)):
-        state = SyncStateRepository(conn).get(tenant_id=tenant_id)
-        # 画面側が「何分おきに動くはずか」を示せるように間隔も返す
-        if state is None:
-            return {
-                "last_synced_at": None,
-                "last_run_at": None,
-                "last_error": None,
-                "interval_seconds": sync_interval,
+        repo = SyncStateRepository(conn)
+        state = repo.get(tenant_id=tenant_id)
+        # **見送った知識は必ず返す。** これを出さないと、取り込みが正常に
+        # 進んでいるのに一部の知識だけ永久に入らない状態に誰も気づけない
+        failures = [
+            {
+                "kb_issue_id": f.kb_issue_id,
+                "attempts": f.attempts,
+                "last_error": f.last_error,
+                "quarantined": f.attempts >= MAX_ITEM_ATTEMPTS,
+                "first_failed_at": f.first_failed_at,
+                "last_failed_at": f.last_failed_at,
             }
+            for f in repo.failures(tenant_id=tenant_id)
+        ]
+        # 画面側が「何分おきに動くはずか」を示せるように間隔も返す
         return {
-            "last_synced_at": state.last_synced_at,
-            "last_run_at": state.last_run_at,
-            "last_error": state.last_error,
+            "last_synced_at": state.last_synced_at if state else None,
+            "last_run_at": state.last_run_at if state else None,
+            "last_error": state.last_error if state else None,
             "interval_seconds": sync_interval,
+            "failures": failures,
         }
 
     # ------------------------------------------------------------ 管理設定

@@ -14,6 +14,28 @@ def dsn() -> str:
     return value
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _schema() -> None:
+    """スキーマを一度だけ用意する。
+
+    **これが無いと、まっさらな DB でスイートが通らない。** API のテストは
+    自分でスキーマを作らず、他のテストの `repo` フィクスチャが先に作って
+    いることに依存していた。同じ DB を使い回している間は表が残るので露見
+    しないが、新しい DB を指すと 28 件が落ちる。
+
+    `dsn` フィクスチャに依存させると、環境変数が無いときに autouse の
+    skip が全テストへ波及する。ここでは自分で読んで、無ければ何もしない。
+    """
+    value = os.environ.get(DSN_ENV)
+    if not value:
+        return
+    psycopg = pytest.importorskip("psycopg")
+    from kb.db import ChunkRepository
+
+    with psycopg.connect(value, autocommit=True) as c:
+        ChunkRepository(c).create_schema()
+
+
 @pytest.fixture
 def conn(dsn):
     psycopg = pytest.importorskip("psycopg")

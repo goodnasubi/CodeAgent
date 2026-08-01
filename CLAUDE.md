@@ -10,7 +10,7 @@ Implemented under `src/kb/`: ingest (convert → chunk → embed → store), hyb
 uv run python -m pytest
 ```
 
-Tests that need an external service skip themselves unless its env vars are set. Run them before trusting changes to `kb.db` or `kb.backends`:
+Tests that need an external service skip themselves unless its env vars are set. A session-scoped autouse fixture applies `schema.sql` once when `KB_TEST_DSN` is set — without it the API tests inherit whatever a previous run left behind and a genuinely empty database fails 28 of them. Run them before trusting changes to `kb.db` or `kb.backends`:
 
 ```bash
 KB_TEST_DSN="postgresql://postgres:devpass@localhost:55432/knowledge" KB_GITHUB_TEST_REPO=goodnasubi/kb-adapter-test KB_GITHUB_TOKEN="$(gh auth token)" uv run python -m pytest
@@ -190,7 +190,7 @@ Environment: `KB_DSN` (Postgres), `KB_SECRET_KEY` (Fernet key for token encrypti
 `SyncRunner` is the polling entry point (fetch updates → read relations → embed and store → dispatch notifications). Three things there are deliberate:
 
 - **The checkpoint timestamp is captured before fetching, not after.** Using the finish time would drop anything edited while the fetch was running.
-- **The checkpoint only advances on a fully clean run.** A fetch failure or any per-item failure leaves it where it was, so the next poll retries that range. Re-ingesting already-stored knowledge is harmless — `replace_issue_chunks` replaces rows for the same model rather than appending.
+- **The checkpoint only advances on a clean run — but a permanently broken item must not hold it hostage.** A fetch failure, or any per-item failure that is still within its retry budget, leaves the checkpoint where it was so the next poll retries that range. Re-ingesting already-stored knowledge is harmless — `replace_issue_chunks` replaces rows for the same model rather than appending. What breaks that rule is one item that fails *every* time: with a strict "clean run only" policy the checkpoint never moves again, the same window is re-fetched every 10 minutes forever, and no newer knowledge ever finishes its window. So `sync_failures` counts consecutive failures per knowledge, and after `MAX_ITEM_ATTEMPTS` (5, roughly 50 minutes at the default interval) the item is **quarantined**: reported separately, skipped, and no longer blocking the checkpoint. A success clears the counter, so an item fixed on the KB side recovers on the next poll — `updated_since` returns it again, it ingests, the row is deleted. **Quarantined items are returned by `GET /sync` and must stay visible somewhere**, or the failure mode becomes "sync looks healthy but a few knowledge entries silently never arrive".
 - **A failure on one knowledge never aborts the batch**, and a `relations()` failure still ingests the knowledge itself: losing one search signal beats losing the knowledge.
 
 First run starts from `EPOCH`, so onboarding a tenant imports everything the KB already holds. That is exactly why the notification dispatcher treats "no prior label state" as "notify nothing" — otherwise onboarding fires a notification per pre-existing label.

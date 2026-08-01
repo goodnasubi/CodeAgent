@@ -129,6 +129,26 @@ CREATE TABLE IF NOT EXISTS sync_state (
 );
 
 
+-- 取り込みに失敗した知識と、その連続失敗回数。
+--
+-- **1 件の恒久的な失敗で取り込み全体が止まらないようにするために要る。**
+-- 到達点は「完全に成功した回」だけ進める作りなので、常に失敗する知識が
+-- 1 件あると到達点が永久に動かず、他の新しい知識も毎回取り直しになる。
+-- 回数を数えておき、一定回数を超えたものは隔離して到達点を進める。
+--
+-- 隔離しても KB 側で編集されれば updated_since が再び返すので、直せば
+-- 次の取り込みで自然に復帰する（成功したら行を消す）。
+CREATE TABLE IF NOT EXISTS sync_failures (
+  tenant_id       UUID        NOT NULL,
+  kb_issue_id     TEXT        NOT NULL,
+  attempts        INT         NOT NULL DEFAULT 1,
+  last_error      TEXT,
+  first_failed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_failed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, kb_issue_id)
+);
+
+
 -- 知識 1 件ぶんの見出し情報。検索結果の表示に使う派生データ。
 --
 -- 検索のたびに KB へ問い合わせると N+1 になり、レート制限の厳しい
