@@ -4,15 +4,21 @@ import { Chat } from "./screens/Chat";
 import { Developer } from "./screens/Developer";
 import { Settings } from "./screens/Settings";
 import { api } from "./api";
+import { Icon, type IconName } from "./icons";
 import { clearIdentity, loadIdentity, type Identity } from "./session";
 
 type Screen = "chat" | "account" | "settings" | "developer";
 
-const SCREENS: { id: Screen; label: string; needsIdentity: boolean }[] = [
-  { id: "chat", label: "チャット", needsIdentity: true },
-  { id: "account", label: "アカウント管理", needsIdentity: false },
-  { id: "settings", label: "管理設定", needsIdentity: true },
-  { id: "developer", label: "開発者向け", needsIdentity: false },
+const SCREENS: {
+  id: Screen;
+  label: string;
+  icon: IconName;
+  needsIdentity: boolean;
+}[] = [
+  { id: "chat", label: "チャット", icon: "chat", needsIdentity: true },
+  { id: "account", label: "アカウント管理", icon: "user", needsIdentity: false },
+  { id: "settings", label: "管理設定", icon: "sliders", needsIdentity: true },
+  { id: "developer", label: "開発者向け", icon: "terminal", needsIdentity: false },
 ];
 
 const SCREEN_IDS = SCREENS.map((s) => s.id);
@@ -70,7 +76,10 @@ export function App() {
               disabled={s.needsIdentity && !identity}
               title={s.needsIdentity && !identity ? "先にアカウントを選んでください" : ""}
             >
-              {s.label}
+              <span className="nav-label">
+                <Icon name={s.icon} />
+                {s.label}
+              </span>
               {s.id === "chat" && unread > 0 && <span className="pill">{unread}</span>}
             </button>
           ))}
@@ -89,6 +98,7 @@ export function App() {
                   setScreen("account");
                 }}
               >
+                <Icon name="switch" />
                 切り替え
               </button>
             </>
@@ -112,6 +122,7 @@ export function App() {
                   style={{ marginTop: 8 }}
                   onClick={() => setScreen("account")}
                 >
+                  <Icon name="user" />
                   アカウント管理へ
                 </button>
               </div>

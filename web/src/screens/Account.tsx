@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon } from "../icons";
 import { api } from "../api";
 import type { Account as AccountRow, Tenant } from "../api";
 import { saveIdentity, type Identity } from "../session";
@@ -56,7 +57,10 @@ export function Account({
       {error && <div className="notice error">{error}</div>}
 
       <div className="card">
-        <h3>現在のアカウント</h3>
+        <h3>
+          <Icon name="user" />
+          現在のアカウント
+        </h3>
         {identity ? (
           <table>
             <tbody>
@@ -79,7 +83,10 @@ export function Account({
       </div>
 
       <div className="card">
-        <h3>アカウントを選ぶ</h3>
+        <h3>
+          <Icon name="switch" />
+          アカウントを選ぶ
+        </h3>
         <div className="field">
           <label htmlFor="tenant">テナント</label>
           <select
@@ -119,7 +126,8 @@ export function Account({
                       onClick={() => choose(a)}
                       disabled={a.id === identity?.accountId}
                     >
-                      {a.id === identity?.accountId ? "使用中" : "使う"}
+                      <Icon name="check" />
+                  {a.id === identity?.accountId ? "使用中" : "使う"}
                     </button>
                   </td>
                 </tr>

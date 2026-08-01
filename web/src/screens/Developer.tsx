@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon } from "../icons";
 import { api, ApiError } from "../api";
 import type { SyncReport, SyncStatus, Tenant } from "../api";
 import type { Identity } from "../session";
@@ -55,7 +56,10 @@ export function Developer({ identity }: { identity: Identity | null }) {
       )}
 
       <div className="card">
-        <h3>テナントの払い出し</h3>
+        <h3>
+          <Icon name="layers" />
+          テナントの払い出し
+        </h3>
         <div className="row">
           <div className="field">
             <label htmlFor="tn">テナント名</label>
@@ -77,6 +81,7 @@ export function Developer({ identity }: { identity: Identity | null }) {
               setMessage({ ok: true, text: `テナント「${created.name}」を作成しました` });
             }}
           >
+            <Icon name="plus" />
             作成
           </button>
         </div>
@@ -104,7 +109,10 @@ export function Developer({ identity }: { identity: Identity | null }) {
       </div>
 
       <div className="card">
-        <h3>操作するテナント</h3>
+        <h3>
+          <Icon name="sliders" />
+          操作するテナント
+        </h3>
         <div className="field">
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="">選択してください</option>
@@ -120,7 +128,10 @@ export function Developer({ identity }: { identity: Identity | null }) {
       {target && (
         <>
           <div className="card">
-            <h3>アカウントの払い出し</h3>
+            <h3>
+              <Icon name="user" />
+              アカウントの払い出し
+            </h3>
             <div className="row">
               <div className="field">
                 <label htmlFor="an">表示名</label>
@@ -139,13 +150,17 @@ export function Developer({ identity }: { identity: Identity | null }) {
                   setMessage({ ok: true, text: "アカウントを作成しました" });
                 }}
               >
+                <Icon name="plus" />
                 作成
               </button>
             </div>
           </div>
 
           <div className="card">
-            <h3>知識ベースからの取り込み</h3>
+            <h3>
+              <Icon name="refresh" />
+              知識ベースからの取り込み
+            </h3>
             <p className="muted" style={{ marginTop: 0 }}>
               常駐スケジューラ（<code>python -m kb.scheduler</code>）が
               {status ? ` ${Math.round(status.interval_seconds / 60)} 分` : ""}
@@ -153,6 +168,7 @@ export function Developer({ identity }: { identity: Identity | null }) {
             </p>
 
             <button className="primary" onClick={runSync} disabled={busy}>
+              <Icon name="refresh" />
               {busy ? "実行中…" : "いま取り込む"}
             </button>
 

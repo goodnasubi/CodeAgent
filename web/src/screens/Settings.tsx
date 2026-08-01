@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon } from "../icons";
 import { api, ApiError } from "../api";
 import type { KbConnection, KbType, ModelSettings, NotificationRule } from "../api";
 import type { Identity } from "../session";
@@ -96,7 +97,10 @@ export function Settings({ identity }: { identity: Identity }) {
       )}
 
       <div className="card">
-        <h3>知識ベース</h3>
+        <h3>
+          <Icon name="database" />
+          知識ベース
+        </h3>
         <p className="muted" style={{ marginTop: 0 }}>
           テナントごとに 1 つだけ選びます。複数を同時には使いません。
         </p>
@@ -163,6 +167,7 @@ export function Settings({ identity }: { identity: Identity }) {
         </div>
 
         <button className="primary" onClick={saveKb} disabled={!project || !token}>
+          <Icon name="save" />
           保存
         </button>
 
@@ -187,7 +192,10 @@ export function Settings({ identity }: { identity: Identity }) {
       </div>
 
       <div className="card">
-        <h3>モデル</h3>
+        <h3>
+          <Icon name="cpu" />
+          モデル
+        </h3>
         {models && (
           <>
             <div className="row">
@@ -293,6 +301,7 @@ export function Settings({ identity }: { identity: Identity }) {
                   setMessage({ ok: true, text: "モデル設定を保存しました" });
                 }}
               >
+                <Icon name="save" />
                 保存
               </button>
             </div>
@@ -304,7 +313,10 @@ export function Settings({ identity }: { identity: Identity }) {
       </div>
 
       <div className="card">
-        <h3>通知</h3>
+        <h3>
+          <Icon name="bell" />
+          通知
+        </h3>
         <p className="muted" style={{ marginTop: 0 }}>
           知識にラベルが付いたときの知らせ先を決めます。
         </p>
@@ -356,6 +368,7 @@ export function Settings({ identity }: { identity: Identity }) {
             }}
             disabled={!newRule.label}
           >
+            <Icon name="plus" />
             追加
           </button>
         </div>
@@ -384,6 +397,7 @@ export function Settings({ identity }: { identity: Identity }) {
                         setRules(await api.listRules(identity.tenantId));
                       }}
                     >
+                      <Icon name="trash" />
                       削除
                     </button>
                   </td>

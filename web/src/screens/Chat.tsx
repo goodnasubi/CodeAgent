@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
+import { Icon } from "../icons";
 import { api, ApiError } from "../api";
 import type {
   Conversation,
@@ -237,7 +238,10 @@ export function Chat({ identity }: { identity: Identity }) {
 
       <div className="chat">
         <div className="side">
-          <h3>会話</h3>
+          <h3>
+            <Icon name="list" />
+            会話
+          </h3>
           <button
             className={`new-conv ${current === null ? "active" : ""}`}
             onClick={() => {
@@ -254,6 +258,7 @@ export function Chat({ identity }: { identity: Identity }) {
             }}
             style={{ width: "100%", marginBottom: 8 }}
           >
+            <Icon name="plus" />
             新しい会話
           </button>
           {conversations.map((c) => (
@@ -300,6 +305,7 @@ export function Chat({ identity }: { identity: Identity }) {
               onClick={() => fileRef.current?.click()}
               disabled={attaching}
             >
+              <Icon name="paperclip" />
               {attaching ? "読み取り中…" : "ファイルを選ぶ"}
             </button>
             <input
@@ -330,6 +336,7 @@ export function Chat({ identity }: { identity: Identity }) {
               }}
               disabled={attaching || !urlDraft.trim()}
             >
+              <Icon name="download" />
               取り込む
             </button>
           </div>
@@ -349,6 +356,7 @@ export function Chat({ identity }: { identity: Identity }) {
               }}
             />
             <button className="primary" onClick={send} disabled={busy || !draft.trim()}>
+              <Icon name="send" />
               {busy ? "検索中…" : "送信"}
             </button>
           </div>
@@ -361,12 +369,16 @@ export function Chat({ identity }: { identity: Identity }) {
         <div className="side">
           {notifications.length > 0 && (
             <>
-              <h3>お知らせ</h3>
+              <h3>
+                <Icon name="bell" />
+                お知らせ
+              </h3>
               {notifications.map((n) => (
                 <div key={n.id} className="notice">
                   <strong>{n.label}</strong> {n.title}
                   <div>
                     <button onClick={() => dismiss(n.id)} style={{ marginTop: 6 }}>
+                      <Icon name="check" />
                       既読にする
                     </button>
                   </div>
@@ -375,7 +387,10 @@ export function Chat({ identity }: { identity: Identity }) {
             </>
           )}
 
-          <h3>見つかった知識</h3>
+          <h3>
+            <Icon name="search" />
+            見つかった知識
+          </h3>
           {/* 検索中は前回の結果を出したままにしない。もう古い */}
           {busy ? (
             <div aria-hidden="true">
@@ -409,6 +424,7 @@ export function Chat({ identity }: { identity: Identity }) {
               disabled={messages.length === 0 && !draft.trim()}
               style={{ width: "100%", marginTop: 8 }}
             >
+              <Icon name="filePlus" />
               新しい知識として登録
             </button>
           ) : (
@@ -436,9 +452,11 @@ export function Chat({ identity }: { identity: Identity }) {
                   onClick={submitForm}
                   disabled={registering || !form.title.trim()}
                 >
+                  <Icon name="check" />
                   {registering ? "登録中…" : "登録する"}
                 </button>
                 <button onClick={() => setForm(null)} disabled={registering}>
+                  <Icon name="x" />
                   やめる
                 </button>
               </div>
