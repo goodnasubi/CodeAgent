@@ -27,7 +27,8 @@ from .notifications import (
     Notifier,
     SlackNotifier,
 )
-from .providers import gemini, openai
+from .providers import claude, gemini, openai
+from .providers.claude import ClaudeLlmClient
 from .providers.gemini import GeminiEmbeddingProvider, GeminiLlmClient
 from .providers.openai import OpenAiEmbeddingProvider, OpenAiLlmClient
 from .sync import SyncRunner
@@ -132,6 +133,14 @@ def build_embedder(
             dimensions=settings.embedding_dim,
         )
 
+    if settings.embedding_provider == "claude":
+        # **未実装ではなく、存在しない。** Anthropic は embedding の API を
+        # 提供していないので、待っていても使えるようにはならない
+        raise UnknownBackend(
+            "Anthropic は embedding の API を提供していないため、claude は"
+            " embedding に選べません（LLM 側にのみ指定できます）"
+        )
+
     raise UnknownBackend(
         f"embedding プロバイダ '{settings.embedding_provider}' は未対応です"
     )
@@ -152,6 +161,10 @@ def build_llm(settings: ModelSettings, *, api_key: str | None = None) -> LlmClie
     if settings.llm_provider == "openai":
         return OpenAiLlmClient(
             api_key=api_key, model=settings.llm_model or openai.DEFAULT_LLM_MODEL
+        )
+    if settings.llm_provider == "claude":
+        return ClaudeLlmClient(
+            api_key=api_key, model=settings.llm_model or claude.DEFAULT_LLM_MODEL
         )
     return None
 

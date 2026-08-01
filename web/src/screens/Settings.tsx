@@ -30,6 +30,7 @@ const CHANNELS = [
 const DEFAULT_LLM_MODEL: Record<string, string> = {
   gemini: "gemini-3.6-flash",
   openai: "gpt-5-mini",
+  claude: "claude-haiku-4-5",
 };
 const DEFAULT_EMBEDDING_MODEL: Record<string, string> = {
   gemini: "gemini-embedding-001",
@@ -222,7 +223,7 @@ export function Settings({ identity }: { identity: Identity }) {
                 >
                   <option value="gemini">Gemini</option>
                   <option value="openai">OpenAI</option>
-                  <option value="claude">Claude API（未対応）</option>
+                  <option value="claude">Claude</option>
                 </select>
               </div>
               <div className="field">
